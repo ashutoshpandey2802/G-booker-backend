@@ -25,8 +25,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 # Store Serializer
 class StoreSerializer(serializers.ModelSerializer):
-    managers = UserSerializer(many=True)
-    therapists = UserSerializer(many=True)
+    managers = UserSerializer(many=True,required=False)
+    therapists = UserSerializer(many=True,required=False)
+    owner = serializers.ReadOnlyField(source='owner.id')
     class Meta:
         model = Store
         fields = '__all__'

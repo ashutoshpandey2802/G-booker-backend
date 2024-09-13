@@ -9,6 +9,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from .models import User, Store, TherapistSchedule
+from rest_framework.authentication import TokenAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
 from twilio.rest import Client
 from django.conf import settings
 from .serializers import (
@@ -19,33 +22,41 @@ from .serializers import (
 # Utility to create user and add them to store roles
 @transaction.atomic
 def create_user_and_assign_role(staff_member, store=None):
+    # Extract the staff details
     role = staff_member.get('role', 'Therapist')
+    phone = staff_member.get('phone')
+    password = staff_member.get('password')
+    email = staff_member.get('email')
+
+    # Ensure phone and password are provided
+    if not phone or not password:
+        raise ValidationError("Phone number and password are required to create a staff member.")
     
-    # Check if the user already exists
-    user = User.objects.filter(phone=staff_member['phone']).first()
-    
+    # Check if user already exists
+    user = User.objects.filter(phone=phone).first()
+
+    # If user doesn't exist, create a new one
     if not user:
         user = User.objects.create_user(
-            phone=staff_member['phone'],
-            password=staff_member['password'],
-            email=staff_member.get('email'),
+            phone=phone,
+            password=password,
+            email=email,
             role=role
         )
     
-    # Add the user to the store as a Manager or Therapist
+    # Now, assign the user to the store
     if store:
         if role == 'Manager':
-            if role == 'Manager' and store.managers.filter(id=user.id).exists():
-                raise ValidationError("Manager already assigned to this store.")
-            else:
-                store.managers.add(user)
+            if store.managers.filter(id=user.id).exists():
+                raise ValidationError("This Manager is already assigned to the store.")
+            store.managers.add(user)
         elif role == 'Therapist':
-            if role == 'Therapist' and store.therapists.filter(id=user.id).exists():
-                raise ValidationError("Therapist already assigned to this store.")
-            else:
-                store.therapists.add(user)
-    
+            if store.therapists.filter(id=user.id).exists():
+                raise ValidationError("This Therapist is already assigned to the store.")
+            store.therapists.add(user)
+
     return user
+
 
 
 # Register API for Owner
@@ -67,8 +78,8 @@ class LoginAPI(APIView):
         if user:
             refresh = RefreshToken.for_user(user)
             data = {
-                "refresh": str(refresh),
                 "access": str(refresh.access_token),
+                "refresh": str(refresh),
                 "role": user.role,
                 "details": None
             }
@@ -82,15 +93,22 @@ class LoginAPI(APIView):
             return Response(data, status=status.HTTP_200_OK)
         return Response({"message": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
 
+from rest_framework.permissions import BasePermission
+
+class IsOwner(BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.role == 'Owner'
 
 
 # Owner - Create Store with multiple staff API
 class CreateStoreWithStaffAPI(APIView):
-    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated,IsOwner]
 
     def post(self, request):
+        # Ensure the authenticated user is an Owner
         if request.user.role != 'Owner':
-            return Response({"error": "Only Owners can create stores"}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "Only owners can create a store."}, status=status.HTTP_403_FORBIDDEN)
         
         store_data = request.data.get('store')
         staff_data = request.data.get('staff', [])
@@ -101,8 +119,25 @@ class CreateStoreWithStaffAPI(APIView):
 
             # Add multiple staff
             for staff_member in staff_data:
-                create_user_and_assign_role(staff_member, store)
+                role = staff_member.get('role')
+                if role not in ['Manager', 'Therapist']:
+                    return Response({"error": "Staff role must be either 'Manager' or 'Therapist'."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Create staff member (either Manager or Therapist)
+                staff_serializer = StaffSerializer(data=staff_member)
+                if staff_serializer.is_valid():
+                    staff = staff_serializer.save()
+
+                    # Assign staff to the store based on role
+                    if role == 'Manager':
+                        store.managers.add(staff)
+                    elif role == 'Therapist':
+                        store.therapists.add(staff)
+                else:
+                    return Response(staff_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
             return Response({"message": "Store and staff created successfully."}, status=status.HTTP_201_CREATED)
+
         return Response(store_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
