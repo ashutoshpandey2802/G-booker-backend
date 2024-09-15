@@ -28,7 +28,7 @@ class User(AbstractBaseUser):
     first_name = models.CharField(max_length=30)
     last_name = models.CharField(max_length=30)
     phone = models.CharField(max_length=15, unique=True)
-    email = models.EmailField(null=True, blank=True,unique=True)
+    email = models.EmailField(null=True, blank=True, unique=True)
     role = models.CharField(max_length=10, choices=ROLES, default='Owner')
     
     is_staff = models.BooleanField(default=False)
@@ -42,7 +42,7 @@ class User(AbstractBaseUser):
     def __str__(self):
         return f'{self.first_name} {self.last_name}' if self.first_name and self.last_name else self.phone
 
-    # Owner's stores and their associated staff (managers and therapists)
+    # Fetch stores owned by this user (if Owner)
     def get_store_details(self):
         if self.role != 'Owner':
             return None
@@ -51,16 +51,9 @@ class User(AbstractBaseUser):
         for store in stores:
             store_info = {
                 'store_name': store.name,
-                'managers': [],
-                'therapists': []
+                'managers': store.get_managers_with_therapists(),
+                'therapists': store.get_therapists(),
             }
-            for manager in store.managers.all():
-                store_info['managers'].append({
-                    'manager_name': f'{manager.first_name} {manager.last_name}',
-                    'assigned_therapists': [f'{t.first_name} {t.last_name}' for t in manager.therapist_stores.filter(id=store.id)]
-                })
-            for therapist in store.therapists.all():
-                store_info['therapists'].append(f'{therapist.first_name} {therapist.last_name}')
             store_details.append(store_info)
         return store_details
 
@@ -81,7 +74,7 @@ class Store(models.Model):
     subscribe = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ['name', 'address']  # Ensure store uniqueness
+        unique_together = ['name', 'address']
 
     def __str__(self):
         return self.name
@@ -100,26 +93,15 @@ class Store(models.Model):
             }
             managers_with_therapists.append(manager_info)
         return managers_with_therapists
-
-    def add_therapist(self, therapist):
-        if self.staff.filter(id=therapist.id).exists():
-            raise ValidationError("This therapist is already assigned to this store.")
-        self.staff.add(therapist)
-
-class StoreStaff(models.Model):
-    STORE_ROLES = (
-        ('Manager', 'Manager'),
-        ('Therapist', 'Therapist'),
-    )
-    store = models.ForeignKey(Store, on_delete=models.CASCADE)
-    name = models.CharField(max_length=255)
-    role = models.CharField(choices=STORE_ROLES, max_length=10)
-    phone = models.CharField(max_length=15)
-    email = models.EmailField(blank=True,null=True)
-    schedule = models.JSONField()  # To store the working days/timings
     
-    
-    
+    def get_manager_and_therapist_names(self):
+        manager_names = [f'{manager.first_name} {manager.last_name}' for manager in self.managers.all()]
+        therapist_names = [f'{therapist.first_name} {therapist.last_name}' for therapist in self.therapists.all()]
+        return {
+            'managers': manager_names,
+            'therapists': therapist_names
+        }
+        
 # Therapist schedule model
 class TherapistSchedule(models.Model):
     therapist = models.ForeignKey(User, on_delete=models.CASCADE)

@@ -16,7 +16,7 @@ from twilio.rest import Client
 from django.conf import settings
 from .serializers import (
     RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
-    TherapistScheduleSerializer
+    TherapistScheduleSerializer,AddStaffToStoreSerializer
 )
 
 # Utility to create user and add them to store roles
@@ -160,7 +160,13 @@ class AddStaffAPI(APIView):
         return Response({"message": "Staff added successfully."}, status=status.HTTP_201_CREATED)
 
 #to check that not same user added twice:
-
+class AddStaffToStoreView(APIView):
+    def post(self, request):
+        serializer = AddStaffToStoreSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            staff = serializer.create_staff(serializer.validated_data)
+            return Response({"message": f"Staff {staff.role} added to store successfully."}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # Add, Update, and Delete Staff API (Owner and Manager)
 class ManageStaffAPI(APIView):

@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     RegisterAPI, LoginAPI, CreateStoreWithStaffAPI, AddStaffAPI, ManageStaffAPI,
     UpdateManagerProfileAPI, UpdateStoreDetailsAPI, ManageTherapistScheduleAPI,
-    UpdateTherapistProfileAPI, RoleDetailsAPI, BookAppointmentAPI, StoreStaffDetailsAPI
+    UpdateTherapistProfileAPI, RoleDetailsAPI, BookAppointmentAPI, StoreStaffDetailsAPI,AddStaffToStoreView
 )
 
 urlpatterns = [
@@ -13,6 +13,7 @@ urlpatterns = [
     # Store and Staff Management APIs
     path('stores/create/', CreateStoreWithStaffAPI.as_view(), name='create_store_with_staff'),
     path('stores/<int:store_id>/staff/add/', AddStaffAPI.as_view(), name='add_staff'),
+     path('stores/add-staff/', AddStaffToStoreView.as_view(), name='add-staff'),
     
     # Manage staff (add, update, delete)
     path('stores/<int:store_id>/staff/manage/', ManageStaffAPI.as_view(), name='manage_staff'),
