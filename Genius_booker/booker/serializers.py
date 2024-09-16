@@ -13,10 +13,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['phone', 'password', 'email']
+        fields = ['first_name', 'last_name', 'email', 'phone', 'password']
 
     def create(self, validated_data):
         user = User.objects.create_user(
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
             phone=validated_data['phone'],
             password=validated_data['password'],
             email=validated_data.get('email', None)
@@ -41,6 +43,8 @@ class StaffSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = User.objects.create_user(
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
             phone=validated_data['phone'],
             password=validated_data['password'],
             email=validated_data.get('email', None),
@@ -57,14 +61,15 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['username', 'phone', 'email', 'password']
+        fields = ['first_name', 'last_name', 'email', 'phone', 'password']
         extra_kwargs = {
             'password': {'write_only': True}
         }
 
     def create(self, validated_data):
         user = User.objects.create(
-            username=validated_data['username'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
             phone=validated_data['phone'],
             email=validated_data['email'],
             role='Therapist'
@@ -79,6 +84,8 @@ class TherapistSerializer(serializers.ModelSerializer):
 class AddStaffToStoreSerializer(serializers.Serializer):
     store_name = serializers.CharField(max_length=255)
     staff_phone = serializers.CharField(max_length=15)
+    first_name = serializers.CharField(max_length=30)
+    last_name = serializers.CharField(max_length=30)
     staff_email = serializers.EmailField(required=False)
     staff_password = serializers.CharField(write_only=True)
     role = serializers.CharField(max_length=10)  # Accept role as a plain CharField
@@ -112,6 +119,8 @@ class AddStaffToStoreSerializer(serializers.Serializer):
         # Create the staff member (Manager or Therapist)
         staff = User.objects.create_user(
             phone=validated_data['staff_phone'],
+            first_name=validated_data['first_name'],
+            last_name=validated_data['last_name'],
             email=validated_data.get('staff_email', ''),
             password=validated_data['staff_password'],
             role=validated_data['role']

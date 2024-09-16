@@ -65,6 +65,7 @@ class RegisterAPI(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
+            
             user = serializer.save(role='Owner')
             return Response({"message": "Owner created successfully."}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -113,7 +114,7 @@ class OwnerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "owner": {
-                    "name": f'{user.first_name} {user.last_name}',
+                    "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
                 },
@@ -167,7 +168,7 @@ class ManagerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "manager": {
-                    "name": f'{user.first_name} {user.last_name}',
+                    "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
                 },
@@ -215,7 +216,7 @@ class TherapistLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "therapist": {
-                    "name": f'{user.first_name} {user.last_name}',
+                    "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
                 },
