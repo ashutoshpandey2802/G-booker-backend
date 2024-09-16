@@ -1,14 +1,16 @@
 from django.urls import path
 from .views import (
-    RegisterAPI, LoginAPI, CreateStoreWithStaffAPI, AddStaffAPI, ManageStaffAPI,
+    RegisterAPI,CreateStoreWithStaffAPI, AddStaffAPI, ManageStaffAPI,
     UpdateManagerProfileAPI, UpdateStoreDetailsAPI, ManageTherapistScheduleAPI,
-    UpdateTherapistProfileAPI, RoleDetailsAPI, BookAppointmentAPI, StoreStaffDetailsAPI,AddStaffToStoreView
+    UpdateTherapistProfileAPI, RoleDetailsAPI,ManagerLoginView,TherapistLoginView,OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,AddStaffToStoreView
 )
 
 urlpatterns = [
     # Register and Login APIs
     path('register/', RegisterAPI.as_view(), name='register'),
-    path('login/', LoginAPI.as_view(), name='login'),
+    path('login/owner/', OwnerLoginView.as_view(), name='owner-login'),
+    path('login/manager/', ManagerLoginView.as_view(), name='manager-login'),
+    path('login/therapist/', TherapistLoginView.as_view(), name='therapist-login'),
     
     # Store and Staff Management APIs
     path('stores/create/', CreateStoreWithStaffAPI.as_view(), name='create_store_with_staff'),
