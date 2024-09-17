@@ -42,15 +42,25 @@ class StaffSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
+        # Extract values from validated data, with default for last_name as None
+        first_name = validated_data['first_name']
+        last_name = validated_data.get('last_name', None)
+        phone = validated_data['phone']
+        password = validated_data['password']
+        email = validated_data.get('email', None)
+        role = validated_data.get('role', None)
+
+        # Create the user, with last_name set to None if not provided
         user = User.objects.create_user(
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
-            phone=validated_data['phone'],
-            password=validated_data['password'],
-            email=validated_data.get('email', None),
-            role=validated_data.get('role')
+            first_name=first_name,
+            last_name=last_name,  # Could be None, which is acceptable
+            phone=phone,
+            password=password,
+            email=email,
+            role=role
         )
         return user
+
 
 # Therapist Schedule Serializer
 class TherapistScheduleSerializer(serializers.ModelSerializer):
@@ -61,7 +71,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'email', 'phone', 'password']
+        fields = ['first_name', 'last_name', 'phone', 'password']
         extra_kwargs = {
             'password': {'write_only': True}
         }
@@ -117,14 +127,20 @@ class AddStaffToStoreSerializer(serializers.Serializer):
 
     def create_staff(self, validated_data):
         # Create the staff member (Manager or Therapist)
-        staff = User.objects.create_user(
-            phone=validated_data['staff_phone'],
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
-            email=validated_data.get('staff_email'),
-            password=validated_data['staff_password'],
-            role=validated_data['role']
-        )
+        staff = {
+            "phone": validated_data['staff_phone'],
+            "first_name": validated_data['first_name'],
+            "email": validated_data.get('staff_email'),
+            "password": validated_data['staff_password'],
+            "role": validated_data['role']
+        }
+
+        # Only include last_name if it was provided
+        last_name = validated_data.get('last_name', '').strip()
+        if last_name:
+            staff["last_name"] = last_name
+
+        staff = User.objects.create_user(**staff)
         store = validated_data['store']  # The store we validated
 
         # Assign the staff to the store based on their role

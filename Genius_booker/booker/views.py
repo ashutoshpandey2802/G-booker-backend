@@ -97,6 +97,7 @@ class OwnerLoginView(APIView):
                     })
 
                 store_data.append({
+                    "store_id":store.id,
                     "store_name": store.name,
                     "store_schedule": {
                         "opening_days": store.opening_days,
@@ -114,6 +115,7 @@ class OwnerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "owner": {
+                    "owner_id":user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
@@ -147,11 +149,13 @@ class ManagerLoginView(APIView):
                 for therapist in therapists:
                     schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
                     therapist_schedule.append({
+                        "therapist_id": therapist.id,
                         "therapist_name": f'{therapist.first_name} {therapist.last_name}',
                         "schedule": list(schedule)
                     })
 
                 store_data.append({
+                    "store_id": store.id,
                     "store_name": store.name,
                     "store_schedule": {
                         "opening_days": store.opening_days,
@@ -168,6 +172,7 @@ class ManagerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "manager": {
+                    "manager_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
@@ -200,6 +205,7 @@ class TherapistLoginView(APIView):
                 therapist_schedule = TherapistSchedule.objects.filter(therapist=user, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
 
                 store_data.append({
+                    "store_id": store.id,
                     "store_name": store.name,
                     "store_schedule": {
                         "opening_days": store.opening_days,
@@ -216,6 +222,7 @@ class TherapistLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "therapist": {
+                    "therapist_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
@@ -252,6 +259,7 @@ class CreateStoreWithStaffAPI(APIView):
             store = store_serializer.save(owner=request.user)
 
             # Add multiple staff
+            created_staff = []
             for staff_member in staff_data:
                 role = staff_member.get('role')
                 if role not in ['Manager', 'Therapist']:
@@ -267,10 +275,22 @@ class CreateStoreWithStaffAPI(APIView):
                         store.managers.add(staff)
                     elif role == 'Therapist':
                         store.therapists.add(staff)
+                        
+                    created_staff.append({
+                        "staff_id": staff.id,
+                        "staff_role": staff.role,
+                        "staff_name": f'{staff.first_name} {staff.last_name}'
+                    })
+                    
                 else:
                     return Response(staff_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response({"message": "Store and staff created successfully."}, status=status.HTTP_201_CREATED)
+            return Response({
+                "message": "Store and staff created successfully.",
+                "store_id": store.id,
+                "store_name": store.name,
+                "created_staff": created_staff
+            }, status=status.HTTP_201_CREATED)
 
         return Response(store_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -288,10 +308,20 @@ class AddStaffAPI(APIView):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
         
         staff_data = request.data.get('staff', [])
+        added_staff = []
         for staff_member in staff_data:
-            create_user_and_assign_role(staff_member, store)
+            user = create_user_and_assign_role(staff_member, store)
+            added_staff.append({
+                "staff_id": user.id,
+                "staff_role": user.role,
+                "staff_name": f"{user.first_name} {user.last_name}"
+            })
         
-        return Response({"message": "Staff added successfully."}, status=status.HTTP_201_CREATED)
+        return Response({
+            "message": "Staff added successfully.",
+            "store_id": store.id,
+            "added_staff": added_staff
+        }, status=status.HTTP_201_CREATED)
 
 
 class AddStaffToStoreView(APIView):
@@ -312,11 +342,21 @@ class ManageStaffAPI(APIView):
         # Owner or Manager permission checks
         if not (request.user.role == 'Owner' or request.user in store.managers.all()):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-
+        
+        added_staff = []
         staff_data = request.data.get('staff', [])
         for staff_member in staff_data:
-            create_user_and_assign_role(staff_member, store)
-        return Response({"message": "Staff added successfully."}, status=status.HTTP_201_CREATED)
+            user = create_user_and_assign_role(staff_member, store)
+            added_staff.append({
+                "staff_id": user.id,
+                "staff_role": user.role,
+                "staff_name": f'{user.first_name} {user.last_name}'
+            })
+        return Response({
+            "message": "Staff added successfully.",
+            "store_id": store.id,
+            "added_staff": added_staff
+        }, status=status.HTTP_201_CREATED)
 
     def put(self, request, store_id, staff_id):
         store = get_object_or_404(Store, id=store_id)
@@ -329,7 +369,11 @@ class ManageStaffAPI(APIView):
         serializer = StaffSerializer(staff_member, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Staff updated successfully"}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Staff updated successfully.",
+                "staff_id": staff_member.id,
+                "store_id": store.id
+            }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, store_id, staff_id):
@@ -342,7 +386,11 @@ class ManageStaffAPI(APIView):
         
         store.managers.remove(staff_member)  # or
         store.therapists.remove(staff_member)
-        return Response({"message": "Staff deleted successfully"}, status=status.HTTP_200_OK)
+        return Response({
+            "message": "Staff deleted successfully.",
+            "staff_id": staff_member.id,
+            "store_id": store.id
+        }, status=status.HTTP_200_OK)
 
 
 # Manage Therapist Schedules and Appointments API
@@ -357,16 +405,25 @@ class ManageTherapistScheduleAPI(APIView):
         
         serializer = TherapistScheduleSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(therapist=therapist)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            schedule = serializer.save(therapist=therapist)
+            return Response({
+                "message": "Schedule created successfully.",
+                "schedule_id": schedule.id,
+                "therapist_id": therapist.id
+            }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
         if not (request.user.role == 'Owner' or request.user.role == 'Manager'):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+        therapist_id = schedule.therapist.id
         schedule.delete()
-        return Response({"message": "Schedule deleted successfully"}, status=status.HTTP_200_OK)
+        return Response({
+            "message": "Schedule deleted successfully",
+            "schedule_id": schedule_id,
+            "therapist_id": therapist_id
+        }, status=status.HTTP_200_OK)
 
 
 # Appointment Booking API
@@ -426,7 +483,9 @@ class BookAppointmentAPI(APIView):
 
             return Response({
                 "message": "Appointment booked successfully",
-                "therapist": f"{therapist.first_name} {therapist.last_name}"
+                "appointment_id": appointment.id,
+                "therapist_id": therapist.id,
+                "store_id": store.id
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -470,7 +529,10 @@ class UpdateManagerProfileAPI(APIView):
         serializer = UserSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Profile updated successfully"}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Profile updated successfully",
+                "user_id": user.id
+            }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -486,7 +548,10 @@ class UpdateTherapistProfileAPI(APIView):
         serializer = TherapistSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Profile updated successfully"}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Profile updated successfully",
+                "user_id": user.id
+            }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -502,7 +567,10 @@ class UpdateStoreDetailsAPI(APIView):
         serializer = StoreSerializer(store, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Store updated successfully"}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Store updated successfully",
+                "store_id": store.id
+            }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -517,7 +585,10 @@ class StoreStaffDetailsAPI(APIView):
         
         store_serializer = StoreSerializer(store)
         staff_serializer = StaffSerializer(store.therapists.all(), many=True)
+        staff_ids = [staff.id for staff in store.therapists.all()]
         return Response({
             "store": store_serializer.data,
-            "staff": staff_serializer.data
+            "staff": staff_serializer.data,
+            "store_id": store.id,
+            "staff_ids": staff_ids
         }, status=status.HTTP_200_OK)
