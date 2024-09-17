@@ -28,6 +28,8 @@ def create_user_and_assign_role(staff_member, store=None):
     phone = staff_member.get('phone')
     password = staff_member.get('password')
     email = staff_member.get('email')
+    exp = staff_member.get('exp', None)
+    specialty = staff_member.get('specialty', None)
 
     # Ensure phone and password are provided
     if not phone or not password:
@@ -42,8 +44,17 @@ def create_user_and_assign_role(staff_member, store=None):
             phone=phone,
             password=password,
             email=email,
-            role=role
+            role=role,
+            exp=exp,
+            specialty=specialty
         )
+    else:
+        # Update existing user with exp and specialty if provided
+        if exp is not None:
+            user.exp = exp
+        if specialty is not None:
+            user.specialty = specialty
+        user.save()
     
     # Now, assign the user to the store
     if store:
@@ -57,6 +68,7 @@ def create_user_and_assign_role(staff_member, store=None):
             store.therapists.add(user)
 
     return user
+
 
 class StoreListView(APIView):
     permission_classes = [AllowAny]
@@ -257,15 +269,18 @@ class IsOwner(BasePermission):
 
 
 # Owner - Create Store with multiple staff API
+
+
 class CreateStoreWithStaffAPI(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated,IsOwner]
+    permission_classes = [IsAuthenticated, IsOwner]
 
+    @transaction.atomic  # Ensures atomic transaction
     def post(self, request):
         # Ensure the authenticated user is an Owner
         if request.user.role != 'Owner':
             return Response({"detail": "Only owners can create a store."}, status=status.HTTP_403_FORBIDDEN)
-        
+
         store_data = request.data.get('store')
         staff_data = request.data.get('staff', [])
 
@@ -278,6 +293,8 @@ class CreateStoreWithStaffAPI(APIView):
             for staff_member in staff_data:
                 role = staff_member.get('role')
                 if role not in ['Manager', 'Therapist']:
+                    # Roll back the transaction if an invalid role is provided
+                    transaction.set_rollback(True)
                     return Response({"error": "Staff role must be either 'Manager' or 'Therapist'."}, status=status.HTTP_400_BAD_REQUEST)
 
                 # Create staff member (either Manager or Therapist)
@@ -290,14 +307,15 @@ class CreateStoreWithStaffAPI(APIView):
                         store.managers.add(staff)
                     elif role == 'Therapist':
                         store.therapists.add(staff)
-                        
+
                     created_staff.append({
                         "staff_id": staff.id,
                         "staff_role": staff.role,
                         "staff_name": f'{staff.first_name} {staff.last_name}'
                     })
-                    
                 else:
+                    # Rollback if any staff creation fails
+                    transaction.set_rollback(True)
                     return Response(staff_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
@@ -306,8 +324,9 @@ class CreateStoreWithStaffAPI(APIView):
                 "store_name": store.name,
                 "created_staff": created_staff
             }, status=status.HTTP_201_CREATED)
+        else:
+            return Response(store_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(store_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 # Add Staff to existing store API
