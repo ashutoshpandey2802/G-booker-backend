@@ -5,8 +5,26 @@ from .models import User, Store, TherapistSchedule
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'phone', 'email', 'role']
-
+        fields = ['id', 'first_name', 'last_name', 'phone', 'email', 'role','experience', 'specialty']
+    def to_representation(self, instance):
+        # Call the original `to_representation` method to get the initial serialized data
+        data = super().to_representation(instance)
+        
+        # Role-based conditional logic for `experience` and `specialty`
+        if instance.role == 'Therapist':
+            # Include both `experience` and `specialty` for therapists
+            data['experience'] = instance.experience
+            data['specialty'] = instance.specialty
+        elif instance.role == 'Manager':
+            # Include only `experience` for managers
+            data['experience'] = instance.experience
+            data.pop('specialty', None)  # Remove `specialty` if it's present
+        else:
+            # For other roles (e.g., Owner), remove both `experience` and `specialty`
+            data.pop('experience', None)
+            data.pop('specialty', None)
+        
+        return data
 # Register Serializer
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -49,6 +67,8 @@ class StaffSerializer(serializers.ModelSerializer):
         password = validated_data['password']
         email = validated_data.get('email', None)
         role = validated_data.get('role', None)
+        if last_name == '' or last_name is None:
+            validated_data.pop('last_name', None)
 
         # Create the user, with last_name set to None if not provided
         user = User.objects.create_user(
@@ -71,7 +91,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'phone', 'password']
+        fields = ['first_name', 'last_name', 'phone', 'password','experience', 'specialty']
         extra_kwargs = {
             'password': {'write_only': True}
         }
@@ -82,8 +102,13 @@ class TherapistSerializer(serializers.ModelSerializer):
             last_name=validated_data['last_name'],
             phone=validated_data['phone'],
             email=validated_data['email'],
-            role='Therapist'
+            role='Therapist',
+            experience=validated_data.get('experience'),  # Optional
+            specialty=validated_data.get('specialty') 
         )
+        last_name = validated_data.get('last_name')
+        if last_name == '' or last_name is None:
+            validated_data.pop('last_name', None)
         user.set_password(validated_data['password'])
         user.save()
         return user
@@ -99,7 +124,8 @@ class AddStaffToStoreSerializer(serializers.Serializer):
     staff_email = serializers.EmailField(required=False)
     staff_password = serializers.CharField(write_only=True)
     role = serializers.CharField(max_length=10)  # Accept role as a plain CharField
-    
+    experience = serializers.IntegerField(required=False, min_value=0)  # Optional field for experience
+    specialty = serializers.CharField(max_length=255, required=False, allow_blank=True)  # Optional for therapists
     def validate_role(self, value):
         """Ensure the role is valid, and allow case-insensitive input."""
         allowed_roles = ['Manager', 'Therapist']
@@ -132,7 +158,10 @@ class AddStaffToStoreSerializer(serializers.Serializer):
             "first_name": validated_data['first_name'],
             "email": validated_data.get('staff_email'),
             "password": validated_data['staff_password'],
-            "role": validated_data['role']
+            "role": validated_data['role'],
+            "experience": validated_data.get('experience'),  # Optional experience
+            "specialty": validated_data.get('specialty', '').strip() if validated_data['role'] == 'Therapist' else None
+        
         }
 
         # Only include last_name if it was provided
@@ -151,3 +180,11 @@ class AddStaffToStoreSerializer(serializers.Serializer):
 
         store.save()
         return staff
+
+
+class StoreDetailSerializer(serializers.ModelSerializer):
+    therapists = TherapistSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Store
+        fields = ['id', 'name', 'address', 'phone', 'email', 'opening_days', 'start_time', 'end_time', 'lunch_start_time', 'lunch_end_time', 'therapists']

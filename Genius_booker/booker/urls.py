@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     RegisterAPI,CreateStoreWithStaffAPI, AddStaffAPI, ManageStaffAPI,
     UpdateManagerProfileAPI, UpdateStoreDetailsAPI, ManageTherapistScheduleAPI,
-    UpdateTherapistProfileAPI, RoleDetailsAPI,ManagerLoginView,TherapistLoginView,OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,AddStaffToStoreView
+    UpdateTherapistProfileAPI, RoleDetailsAPI,ManagerLoginView,StoreListView,TherapistLoginView,OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,AddStaffToStoreView
 )
 
 urlpatterns = [
@@ -15,7 +15,7 @@ urlpatterns = [
     # Store and Staff Management APIs
     path('stores/create/', CreateStoreWithStaffAPI.as_view(), name='create_store_with_staff'),
     path('stores/<int:store_id>/staff/add/', AddStaffAPI.as_view(), name='add_staff'),
-     path('stores/add-staff/', AddStaffToStoreView.as_view(), name='add-staff'),
+    path('stores/add-staff/', AddStaffToStoreView.as_view(), name='add-staff'),
     
     # Manage staff (add, update, delete)
     path('stores/<int:store_id>/staff/manage/', ManageStaffAPI.as_view(), name='manage_staff'),
@@ -34,4 +34,8 @@ urlpatterns = [
     path('appointments/book/', BookAppointmentAPI.as_view(), name='book_appointment'),
     path('role-details/', RoleDetailsAPI.as_view(), name='role-details'),
     path('store/<int:store_id>/staff-details/', StoreStaffDetailsAPI.as_view(), name='store-staff-details'),
+    
+    #get all stores details
+    path('stores/', StoreListView.as_view(), name='store-list'),
+
 ]

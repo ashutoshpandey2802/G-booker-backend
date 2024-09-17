@@ -34,6 +34,9 @@ class User(AbstractBaseUser):
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     
+    experience = models.IntegerField(null=True, blank=True)  # In years
+    specialty = models.CharField(max_length=255, blank=True, null=True)  
+    
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []
 

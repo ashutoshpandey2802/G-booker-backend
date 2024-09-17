@@ -11,13 +11,13 @@ from django.db import transaction
 from .models import User, Store, TherapistSchedule
 from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission,AllowAny
 
 from twilio.rest import Client
 from django.conf import settings
 from .serializers import (
     RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
-    TherapistScheduleSerializer,AddStaffToStoreSerializer
+    TherapistScheduleSerializer,AddStaffToStoreSerializer,StoreDetailSerializer
 )
 
 # Utility to create user and add them to store roles
@@ -58,6 +58,12 @@ def create_user_and_assign_role(staff_member, store=None):
 
     return user
 
+class StoreListView(APIView):
+    permission_classes = [AllowAny]
+    def get(self, request):
+        stores = Store.objects.all().prefetch_related('therapists')
+        serializer = StoreDetailSerializer(stores, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 # Register API for Owner
@@ -80,25 +86,29 @@ class OwnerLoginView(APIView):
 
         if user and user.role == 'Owner':
             # Fetch the stores owned by the owner
-            stores = Store.objects.filter(owner=user)
+            stores = Store.objects.filter(owner=user).prefetch_related('managers', 'therapists')
             refresh = RefreshToken.for_user(user)
 
-            # Prepare store data including managers and therapists
+            # Prepare store data including managers and therapists with all details
             store_data = []
             for store in stores:
-                managers = [{'manager_name': f'{manager.first_name} {manager.last_name}'} for manager in store.managers.all()]
-                therapists = [{'therapist_name': f'{therapist.first_name} {therapist.last_name}'} for therapist in store.therapists.all()]
-                therapist_schedule = []
+                # Fetching all manager details for the store
+                managers = UserSerializer(store.managers.all(), many=True).data
+                
+                # Fetching all therapist details for the store, including their schedule
+                therapist_data = []
                 for therapist in store.therapists.all():
-                    schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
-                    therapist_schedule.append({
-                        "therapist_name": f'{therapist.first_name} {therapist.last_name}',
-                        "schedule": list(schedule)
-                    })
+                    therapist_schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
+                    therapist_info = UserSerializer(therapist).data
+                    therapist_info['schedule'] = list(therapist_schedule)
+                    therapist_data.append(therapist_info)
 
                 store_data.append({
-                    "store_id":store.id,
+                    "store_id": store.id,
                     "store_name": store.name,
+                    "store_address": store.address,
+                    "store_phone": store.phone,
+                    "store_email": store.email,
                     "store_schedule": {
                         "opening_days": store.opening_days,
                         "start_time": store.start_time,
@@ -107,7 +117,7 @@ class OwnerLoginView(APIView):
                         "lunch_end_time": store.lunch_end_time
                     },
                     "managers": managers,
-                    "therapists": therapist_schedule
+                    "therapists": therapist_data
                 })
 
             # Prepare response data
@@ -115,7 +125,7 @@ class OwnerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "owner": {
-                    "owner_id":user.id,
+                    "owner_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone
@@ -151,6 +161,8 @@ class ManagerLoginView(APIView):
                     therapist_schedule.append({
                         "therapist_id": therapist.id,
                         "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+                        "therapist_exp": therapist.exp,
+                        "therapist_specialty": therapist.specialty, 
                         "schedule": list(schedule)
                     })
 
@@ -175,7 +187,8 @@ class ManagerLoginView(APIView):
                     "manager_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
-                    "phone": user.phone
+                    "phone": user.phone,
+                    "exp": user.exp 
                 },
                 "stores": store_data
             }
@@ -225,7 +238,9 @@ class TherapistLoginView(APIView):
                     "therapist_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
-                    "phone": user.phone
+                    "phone": user.phone,
+                    "exp": user.exp,  # Assuming 'exp' is a field on the User model
+                    "specialty": user.specialty
                 },
                 "stores": store_data
             }
@@ -582,13 +597,30 @@ class StoreStaffDetailsAPI(APIView):
         store = get_object_or_404(Store, id=store_id)
         if not (request.user.role == 'Owner' or request.user in store.managers.all()):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-        
+
         store_serializer = StoreSerializer(store)
-        staff_serializer = StaffSerializer(store.therapists.all(), many=True)
-        staff_ids = [staff.id for staff in store.therapists.all()]
+
+        # Staff details with experience and specialty for therapists
+        therapist_data = []
+        for therapist in store.therapists.all():
+            therapist_data.append({
+                "therapist_id": therapist.id,
+                "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+                "therapist_exp": therapist.exp,  # Add experience field
+                "therapist_specialty": therapist.specialty  # Add specialty field
+            })
+
+        # Manager details with only experience
+        manager_data = []
+        for manager in store.managers.all():
+            manager_data.append({
+                "manager_id": manager.id,
+                "manager_name": f'{manager.first_name} {manager.last_name}',
+                "manager_exp": manager.exp  # Add experience field
+            })
+
         return Response({
             "store": store_serializer.data,
-            "staff": staff_serializer.data,
-            "store_id": store.id,
-            "staff_ids": staff_ids
+            "managers": manager_data,
+            "therapists": therapist_data,
         }, status=status.HTTP_200_OK)
