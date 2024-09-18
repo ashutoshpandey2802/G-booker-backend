@@ -143,6 +143,7 @@ class OwnerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "owner": {
+                    "role": user.role,
                     "owner_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
@@ -202,6 +203,7 @@ class ManagerLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "manager": {
+                    "role": user.role,
                     "manager_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
@@ -253,6 +255,7 @@ class TherapistLoginView(APIView):
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "therapist": {
+                    "role": user.role,
                     "therapist_id": user.id,
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,

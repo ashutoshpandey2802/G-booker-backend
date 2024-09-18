@@ -62,7 +62,7 @@ class StaffSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # Extract values from validated data, with default for last_name as None
         first_name = validated_data['first_name']
-        last_name = validated_data.get('last_name', None)
+        last_name = validated_data.get('last_name', '').strip()
         phone = validated_data['phone']
         password = validated_data['password']
         email = validated_data.get('email', None)
@@ -70,6 +70,10 @@ class StaffSerializer(serializers.ModelSerializer):
         exp = validated_data.get('exp', None)  # Get exp if provided
         specialty = validated_data.get('specialty', None)  # Get specialty if provided
 
+         # Handle last_name: If the user didn't provide a last name or it's just empty, treat it as an empty string
+        if not last_name:
+            validated_data.pop('last_name', None) 
+        
         if role == 'Therapist':
             if exp is None:
                 exp = 0  # Default exp to 0 if not provided
@@ -78,18 +82,17 @@ class StaffSerializer(serializers.ModelSerializer):
         elif role == 'Manager':
             if exp is None:
                 exp = 0
-        if last_name == '' or last_name is None:
-            validated_data.pop('last_name', None)
+        
 
         # Create the user, with last_name set to None if not provided
         user = User.objects.create_user(
             first_name=first_name,
-            last_name=last_name,  # Could be None, which is acceptable
+            last_name=last_name if 'last_name' in validated_data else None,  
             phone=phone,
             password=password,
             email=email,
             role=role,
-            exp=exp,  # Save exp
+            exp=exp,  
             specialty=specialty
         )
         if role == 'Manager' and exp is not None:
