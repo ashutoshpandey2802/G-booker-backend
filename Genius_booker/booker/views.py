@@ -12,6 +12,8 @@ from .models import User, Store, TherapistSchedule
 from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
+from twilio.rest import Client
+from django.conf import settings
 
 from twilio.rest import Client
 from django.conf import settings
@@ -374,7 +376,7 @@ class ManageStaffAPI(APIView):
         store = get_object_or_404(Store, id=store_id)
         
         # Owner or Manager permission checks
-        if not (request.user.role == 'Owner' or request.user in store.managers.all()):
+        if not (request.user.role == 'Owner' or request.user in store.managers.all() or request.user.store == store):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
         
         added_staff = []
@@ -396,8 +398,12 @@ class ManageStaffAPI(APIView):
         store = get_object_or_404(Store, id=store_id)
         staff_member = get_object_or_404(User, id=staff_id)
         
-        # Owner or Manager permission checks
-        if not (request.user.role == 'Owner' or request.user in store.managers.all()):
+        # Owner or Manager permission check
+        if request.user.role == 'Owner' and request.user.store == store:
+            pass  # Owner can modify all
+        elif request.user.role == 'Manager' and request.user in store.managers.all() and staff_member.role == 'Therapist':
+            pass  # Manager can modify Therapists only
+        else:
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = StaffSerializer(staff_member, data=request.data, partial=True)
@@ -414,12 +420,15 @@ class ManageStaffAPI(APIView):
         store = get_object_or_404(Store, id=store_id)
         staff_member = get_object_or_404(User, id=staff_id)
 
-        # Owner or Manager permission checks
-        if not (request.user.role == 'Owner' or request.user in store.managers.all()):
+        # Owner or Manager permission check
+        if request.user.role == 'Owner' and request.user.store == store:
+            pass  # Owner can delete all
+        elif request.user.role == 'Manager' and request.user in store.managers.all() and staff_member.role == 'Therapist':
+            pass  # Manager can delete Therapists only
+        else:
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
         
-        store.managers.remove(staff_member)  # or
-        store.therapists.remove(staff_member)
+        store.managers.remove(staff_member) if staff_member.role == 'Manager' else store.therapists.remove(staff_member)
         return Response({
             "message": "Staff deleted successfully.",
             "staff_id": staff_member.id,
@@ -461,8 +470,6 @@ class ManageTherapistScheduleAPI(APIView):
 
 
 # Appointment Booking API
-from twilio.rest import Client
-from django.conf import settings
 
 class BookAppointmentAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -506,7 +513,7 @@ class BookAppointmentAPI(APIView):
             appointment = serializer.save()
 
             # Send SMS after a successful booking
-            phone_number = request.user.phone  # Assuming the phone number is stored in the user's profile
+            phone_number = request.user.phone  
             message_body = (
                 f"Dear {request.user.first_name}, your appointment at {store.name} "
                 f"with {therapist.first_name} {therapist.last_name} is confirmed for {date} "
@@ -524,7 +531,7 @@ class BookAppointmentAPI(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def send_sms(self, to, message_body):
-        """Helper function to send SMS using Twilio"""
+        
         account_sid = settings.TWILIO_ACCOUNT_SID
         auth_token = settings.TWILIO_AUTH_TOKEN
         twilio_phone_number = settings.TWILIO_PHONE_NUMBER
