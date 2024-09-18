@@ -107,7 +107,11 @@ class OwnerLoginView(APIView):
             store_data = []
             for store in stores:
                 # Fetching all manager details for the store
-                managers = UserSerializer(store.managers.all(), many=True).data
+                manager_data = []
+                for manager in store.managers.all():
+                    
+                    manager_info = UserSerializer(manager).data
+                    manager_data.append(manager_info)
                 
                 # Fetching all therapist details for the store, including their schedule
                 therapist_data = []
@@ -130,7 +134,7 @@ class OwnerLoginView(APIView):
                         "lunch_start_time": store.lunch_start_time,
                         "lunch_end_time": store.lunch_end_time
                     },
-                    "managers": managers,
+                    "managers": manager_data,
                     "therapists": therapist_data
                 })
 
