@@ -147,7 +147,7 @@ class OwnerLoginView(APIView):
                 "owner": {
                     "role": user.role,
                     "owner_id": user.id,
-                    "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
+                    "name": user.username,
                     "email": user.email,
                     "phone": user.phone
                 },
@@ -181,7 +181,7 @@ class ManagerLoginView(APIView):
                     schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
                     therapist_schedule.append({
                         "therapist_id": therapist.id,
-                        "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+                        "therapist_name": therapist.username,
                         "therapist_exp": str(therapist.exp),
                         "therapist_specialty": therapist.specialty, 
                         "schedule": list(schedule),
@@ -209,7 +209,7 @@ class ManagerLoginView(APIView):
                 "manager": {
                     "role": user.role,
                     "manager_id": user.id,
-                    "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
+                    "name": user.username ,
                     "email": user.email,
                     "phone": user.phone,
                     "exp": str(user.exp),
@@ -262,7 +262,7 @@ class TherapistLoginView(APIView):
                 "therapist": {
                     "role": user.role,
                     "therapist_id": user.id,
-                    "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
+                    "name": user.username, 
                     "email": user.email,
                     "phone": user.phone,
                     "exp": str(user.exp),  # Assuming 'exp' is a field on the User model
@@ -326,7 +326,7 @@ class CreateStoreWithStaffAPI(APIView):
                     created_staff.append({
                         "staff_id": staff.id,
                         "staff_role": staff.role,
-                        "staff_name": f'{staff.first_name} {staff.last_name}'
+                        "staff_name": staff.username
                     })
                 else:
                     # Rollback if any staff creation fails
@@ -363,7 +363,7 @@ class AddStaffAPI(APIView):
             added_staff.append({
                 "staff_id": user.id,
                 "staff_role": user.role,
-                "staff_name": f"{user.first_name} {user.last_name}"
+                "staff_name": user.username
             })
         
         return Response({
@@ -399,7 +399,7 @@ class ManageStaffAPI(APIView):
             added_staff.append({
                 "staff_id": user.id,
                 "staff_role": user.role,
-                "staff_name": f'{user.first_name} {user.last_name}'
+                "staff_name": user.username
             })
         return Response({
             "message": "Staff added successfully.",
@@ -528,8 +528,8 @@ class BookAppointmentAPI(APIView):
             # Send SMS after a successful booking
             phone_number = request.user.phone  
             message_body = (
-                f"Dear {request.user.first_name}, your appointment at {store.name} "
-                f"with {therapist.first_name} {therapist.last_name} is confirmed for {date} "
+                f"Dear {request.user.username}, your appointment at {store.name} "
+                f"with {therapist.username} is confirmed for {date} "
                 f"from {start_time} to {end_time}. Thank you!"
             )
             
@@ -605,7 +605,7 @@ class UpdateTherapistProfileAPI(APIView):
             return Response({
                 "message": "Profile updated successfully",
                 "user_id": user.id,  # Return the therapist's ID
-                "therapist_name": f'{user.first_name} {user.last_name}',  # Return therapist's name for confirmation
+                "therapist_name": user.username,  # Return therapist's name for confirmation
                 "phone": user.phone,
                 "email": user.email,
                 "experience": user.exp,  # Assuming exp is a field for experience
@@ -649,7 +649,7 @@ class StoreStaffDetailsAPI(APIView):
         for therapist in store.therapists.all():
             therapist_data.append({
                 "therapist_id": therapist.id,
-                "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+                "therapist_name": therapist.username,
                 "therapist_exp": therapist.exp,  # Add experience field
                 "therapist_specialty": therapist.specialty  # Add specialty field
             })
@@ -659,7 +659,7 @@ class StoreStaffDetailsAPI(APIView):
         for manager in store.managers.all():
             manager_data.append({
                 "manager_id": manager.id,
-                "manager_name": f'{manager.first_name} {manager.last_name}',
+                "manager_name": manager.username,
                 "manager_exp": manager.exp  # Add experience field
             })
 
@@ -691,7 +691,7 @@ class AllSchedulesAPI(APIView):
             manager_schedule = ManagerSchedule.objects.filter(manager=manager).values('date', 'start_time', 'end_time')
             manager_schedules.append({
                 "manager_id": manager.id,
-                "manager_name": f'{manager.first_name} {manager.last_name}',
+                "manager_name": manager.username,
                 "schedule": list(manager_schedule)
             })
 
@@ -701,7 +701,7 @@ class AllSchedulesAPI(APIView):
             therapist_schedule = TherapistSchedule.objects.filter(therapist=therapist).values('date', 'start_time', 'end_time', 'is_day_off')
             therapist_schedules.append({
                 "therapist_id": therapist.id,
-                "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+                "therapist_name": therapist.username,
                 "schedule": list(therapist_schedule)
             })
 
@@ -757,12 +757,12 @@ class TherapistScheduleAPI(APIView):
                 "editable": True,
                 "start": f"{schedule['date']} {schedule['start_time']}",
                 "end": f"{schedule['date']} {schedule['end_time']}",
-                "title": f"Appointment with {therapist.first_name} {therapist.last_name}",
+                "title": f"Appointment with {therapist.username}",
             })
 
         return Response({
             "therapist_id": therapist_id,
-            "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+            "therapist_name":therapist.username,
             "schedules": formatted_schedules
         }, status=status.HTTP_200_OK)
 

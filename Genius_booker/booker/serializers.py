@@ -5,19 +5,16 @@ from .models import User, Store, TherapistSchedule
 from .models import User, Store, TherapistSchedule, ManagerSchedule
 
 class UserSerializer(serializers.ModelSerializer):
-    name = serializers.SerializerMethodField()
     experience = serializers.SerializerMethodField()
     schedule = serializers.SerializerMethodField()
     
     class Meta:
         model = User
         fields = [
-            'name', 'role', 'experience', 'phone', 'email', 
+            'username', 'role', 'experience', 'phone', 'email', 
             'image', 'description', 'is_active', 'schedule'
         ]
-    
-    def get_name(self, instance):
-        return f'{instance.first_name} {instance.last_name}' if instance.last_name else instance.first_name
+
     
     def get_experience(self, instance):
         return f'{instance.exp} years' if instance.role in ['Therapist', 'Manager'] and instance.exp else 'N/A'
@@ -38,7 +35,7 @@ class UserSerializer(serializers.ModelSerializer):
                 "editable": True,
                 "start": schedule.start_time.strftime('%Y-%m-%d %H:%M:%S'),
                 "end": schedule.end_time.strftime('%Y-%m-%d %H:%M:%S'),
-                "title": f'{instance.first_name} {instance.last_name}' if instance.last_name else instance.first_name
+                "title": instance.username
             })
         return schedule_data
     def to_representation(self, instance):
@@ -62,12 +59,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['first_name','last_name' ,'email', 'phone', 'password']
+        fields = ['username','email', 'phone', 'password']
 
     def create(self, validated_data):
         user = User.objects.create_user(
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
+            username=validated_data['username'],
             phone=validated_data['phone'],
             password=validated_data['password'],
             email=validated_data.get('email', None)
@@ -91,19 +87,13 @@ class StaffSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        # Extract values from validated data, with default for last_name as None
-        first_name = validated_data['first_name']
-        last_name = validated_data.get('last_name', '').strip()
+        username=validated_data['username'],
         phone = validated_data['phone']
         password = validated_data['password']
         email = validated_data.get('email', None)
         role = validated_data.get('role', None)
-        exp = validated_data.get('exp', None)  # Get exp if provided
-        specialty = validated_data.get('specialty', None)  # Get specialty if provided
-
-         # Handle last_name: If the user didn't provide a last name or it's just empty, treat it as an empty string
-        if not last_name:
-            validated_data.pop('last_name', None) 
+        exp = validated_data.get('exp', None)  
+        specialty = validated_data.get('specialty', None)  
         
         if role == 'Therapist':
             if exp is None:
@@ -115,10 +105,9 @@ class StaffSerializer(serializers.ModelSerializer):
                 exp = 0
         
 
-        # Create the user, with last_name set to None if not provided
+        
         user = User.objects.create_user(
-            first_name=first_name,
-            last_name=last_name if 'last_name' in validated_data else None,  
+            username=username,  
             phone=phone,
             password=password,
             email=email,
@@ -145,24 +134,21 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'phone', 'password','exp', 'specialty']
+        fields = ['username', 'phone', 'password','exp', 'specialty']
         extra_kwargs = {
             'password': {'write_only': True}
         }
 
     def create(self, validated_data):
         user = User.objects.create(
-            first_name=validated_data['first_name'],
-            last_name=validated_data['last_name'],
+            username=validated_data['username'],
             phone=validated_data['phone'],
             email=validated_data['email'],
             role='Therapist',
             exp=validated_data.get('exp'),  # Optional
             specialty=validated_data.get('specialty') 
         )
-        last_name = validated_data.get('last_name')
-        if last_name == '' or last_name is None:
-            validated_data.pop('last_name', None)
+        
         user.set_password(validated_data['password'])
         user.save()
         return user
@@ -174,8 +160,7 @@ class AddStaffToStoreSerializer(serializers.Serializer):
     store_id = serializers.IntegerField(required=False)  # Optional field for store ID
     store_name = serializers.CharField(max_length=255, required=False)  # Optional field for store name
     staff_phone = serializers.CharField(max_length=15)
-    first_name = serializers.CharField(max_length=30)
-    last_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    username = serializers.CharField(max_length=30)
     staff_email = serializers.EmailField(required=False)
     staff_password = serializers.CharField(write_only=True)
     role = serializers.CharField(max_length=10)  # Accept role as a plain CharField
@@ -219,18 +204,13 @@ class AddStaffToStoreSerializer(serializers.Serializer):
         # Create the staff member (Manager or Therapist)
         staff = {
             "phone": validated_data['staff_phone'],
-            "first_name": validated_data['first_name'],
+            "username": validated_data['username'],
             "email": validated_data.get('staff_email'),
             "password": validated_data['staff_password'],
             "role": validated_data['role'],
             "exp": validated_data.get('exp'),  # Optional exp
             "specialty": validated_data.get('specialty', '').strip() if validated_data['role'] == 'Therapist' else None
         }
-
-        # Only include last_name if it was provided
-        last_name = validated_data.get('last_name', '').strip()
-        if last_name:
-            staff["last_name"] = last_name
 
         staff = User.objects.create_user(**staff)
         store = validated_data['store']  # The store we validated

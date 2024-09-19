@@ -25,8 +25,7 @@ class User(AbstractBaseUser):
         ('Therapist', 'Therapist'),
     )
     
-    first_name = models.CharField(max_length=30)
-    last_name = models.CharField(max_length=30, blank=True, null=True)
+    username = models.CharField(max_length=30)
     phone = models.CharField(max_length=15, unique=True)
     email = models.EmailField(null=True, blank=True, unique=True)
     role = models.CharField(max_length=10, choices=ROLES, default='Owner')
@@ -42,12 +41,12 @@ class User(AbstractBaseUser):
     
     
     USERNAME_FIELD = 'phone'
-    REQUIRED_FIELDS = []
+    REQUIRED_FIELDS = ['username']
 
     objects = UserManager()
 
     def __str__(self):
-        return f'{self.first_name} {self.last_name}' if self.first_name and self.last_name else self.phone
+        return self.username if self.username else self.phone
 
     # Fetch stores owned by this user (if Owner)
     def get_store_details(self):
@@ -88,25 +87,26 @@ class Store(models.Model):
 
     # Get the list of therapists for a store
     def get_therapists(self):
-        return [{'therapist_name': f'{therapist.first_name} {therapist.last_name}'} for therapist in self.therapists.all()]
+        return [{'therapist_name': therapist.username} for therapist in self.therapists.all()]
 
     # Get managers and assigned therapists for each manager in the store
     def get_managers_with_therapists(self):
         managers_with_therapists = []
         for manager in self.managers.all():
             manager_info = {
-                'manager_name': f'{manager.first_name} {manager.last_name}',
-                'assigned_therapists': [f'{therapist.first_name} {therapist.last_name}' for therapist in manager.therapist_stores.filter(id=self.id)]
+                'manager_name': manager.username,
+                'assigned_therapists': [therapist.username for therapist in manager.therapist_stores.filter(id=self.id)]
             }
             managers_with_therapists.append(manager_info)
         return managers_with_therapists
     
     def get_manager_and_therapist_names(self):
-        manager_names = [f'{manager.first_name} {manager.last_name}' for manager in self.managers.all()]
-        therapist_names = [f'{therapist.first_name} {therapist.last_name}' for therapist in self.therapists.all()]
+        manager_names = [manager.username for manager in self.managers.all()]
+        therapist_names = [therapist.username for therapist in self.therapists.all()]
         return {
             'managers': manager_names,
             'therapists': therapist_names
+        
         }
         
 # Therapist schedule model
