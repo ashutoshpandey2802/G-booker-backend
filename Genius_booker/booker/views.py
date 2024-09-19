@@ -602,14 +602,15 @@ class UpdateTherapistProfileAPI(APIView):
         serializer = TherapistSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+            updated_user = User.objects.get(id=user.id)  # Fetch updated user data
             return Response({
                 "message": "Profile updated successfully",
-                "user_id": user.id,  # Return the therapist's ID
-                "therapist_name": user.username,  # Return therapist's name for confirmation
-                "phone": user.phone,
-                "email": user.email,
-                "experience": user.exp,  # Assuming exp is a field for experience
-                "specialty": user.specialty  # Return updated specialty
+                "user_id": updated_user.id,
+                "username": updated_user.username,
+                "phone": updated_user.phone,
+                "email": updated_user.email,
+                "experience": updated_user.exp,
+                "specialty": updated_user.specialty
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

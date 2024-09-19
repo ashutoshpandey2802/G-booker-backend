@@ -134,7 +134,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['username', 'phone', 'password','exp', 'specialty']
+        fields = ['username', 'phone', 'password','exp', 'specialty','email']
         extra_kwargs = {
             'password': {'write_only': True}
         }
