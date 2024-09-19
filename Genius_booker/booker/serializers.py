@@ -15,6 +15,13 @@ class UserSerializer(serializers.ModelSerializer):
             'image', 'description', 'is_active', 'schedule'
         ]
 
+    def update(self, instance, validated_data):
+        # Update fields if they are provided in the request
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        return instance
     
     def get_experience(self, instance):
         return f'{instance.exp} years' if instance.role in ['Therapist', 'Manager'] and instance.exp else 'N/A'
