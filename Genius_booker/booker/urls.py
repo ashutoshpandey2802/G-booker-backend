@@ -1,8 +1,10 @@
 from django.urls import path
 from .views import (
-    RegisterAPI,CreateStoreWithStaffAPI, AddStaffAPI, ManageStaffAPI,
+    RegisterAPI, CreateStoreWithStaffAPI, AddStaffAPI, ManageStaffAPI,
     UpdateManagerProfileAPI, UpdateStoreDetailsAPI, ManageTherapistScheduleAPI,
-    UpdateTherapistProfileAPI, RoleDetailsAPI,ManagerLoginView,StoreListView,TherapistLoginView,OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,AddStaffToStoreView
+    UpdateTherapistProfileAPI, RoleDetailsAPI, ManagerLoginView, StoreListView, TherapistLoginView,
+    OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI, AddStaffToStoreView,
+    AllSchedulesAPI, StoreScheduleAPI, ManagerScheduleAPI,TherapistScheduleAPI
 )
 
 urlpatterns = [
@@ -24,18 +26,22 @@ urlpatterns = [
     path('manager/update-profile/', UpdateManagerProfileAPI.as_view(), name='update-manager-profile'),
     path('store/<int:store_id>/update/', UpdateStoreDetailsAPI.as_view(), name='update-store'),
     
-
     # Therapist Schedule Management
     path('therapists/<int:therapist_id>/schedule/manage/', ManageTherapistScheduleAPI.as_view(), name='manage_therapist_schedule'),
     path('therapists/schedule/<int:schedule_id>/delete/', ManageTherapistScheduleAPI.as_view(), name='delete_schedule'),
     path('therapist/update-profile/', UpdateTherapistProfileAPI.as_view(), name='update-therapist-profile'),
 
-    # Appointment Booking API and     # Role-specific and General APIs
+    # Appointment Booking API and Role-specific and General APIs
     path('appointments/book/', BookAppointmentAPI.as_view(), name='book_appointment'),
     path('role-details/', RoleDetailsAPI.as_view(), name='role-details'),
     path('store/<int:store_id>/staff-details/', StoreStaffDetailsAPI.as_view(), name='store-staff-details'),
     
-    #get all stores details
+    # Get all stores details
     path('stores/', StoreListView.as_view(), name='store-list'),
-
+    
+    # Get all schedules
+    path('stores/<int:store_id>/schedules/', AllSchedulesAPI.as_view(), name='all-schedules'),
+    path('store/<int:store_id>/schedule/', StoreScheduleAPI.as_view(), name='store-schedule'),
+    path('managers/<int:manager_id>/schedule/', ManagerScheduleAPI.as_view(), name='manager-schedule'),
+    path('therapists/<int:therapist_id>/schedule/', TherapistScheduleAPI.as_view(), name='therapist_schedule'),
 ]

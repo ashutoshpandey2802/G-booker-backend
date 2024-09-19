@@ -2,25 +2,56 @@ from rest_framework import serializers
 from .models import User, Store, TherapistSchedule
 
 # User Serializer
+from .models import User, Store, TherapistSchedule, ManagerSchedule
+
 class UserSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    experience = serializers.SerializerMethodField()
+    schedule = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'last_name', 'phone', 'email', 'role','exp', 'specialty']
+        fields = [
+            'name', 'role', 'experience', 'phone', 'email', 
+            'image', 'description', 'is_active', 'schedule'
+        ]
+    
+    def get_name(self, instance):
+        return f'{instance.first_name} {instance.last_name}' if instance.last_name else instance.first_name
+    
+    def get_experience(self, instance):
+        return f'{instance.exp} years' if instance.role in ['Therapist', 'Manager'] and instance.exp else 'N/A'
+    
+    def get_schedule(self, instance):
+        if instance.role == 'Therapist':
+            schedules = TherapistSchedule.objects.filter(therapist=instance)
+        elif instance.role == 'Manager':
+            schedules = ManagerSchedule.objects.filter(manager=instance)
+        else:
+            return []
+
+        schedule_data = []
+        for schedule in schedules:
+            schedule_data.append({
+                "backgroundColor": "#21BA45",
+                "borderColor": "#21BA45",
+                "editable": True,
+                "start": schedule.start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "end": schedule.end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "title": f'{instance.first_name} {instance.last_name}' if instance.last_name else instance.first_name
+            })
+        return schedule_data
     def to_representation(self, instance):
-        # Call the original `to_representation` method to get the initial serialized data
         data = super().to_representation(instance)
         
-        # Role-based conditional logic for `exp` and `specialty`
+        # Role-based conditional logic
         if instance.role == 'Therapist':
-            # Include both `exp` and `specialty` for therapists
             data['exp'] = instance.exp
             data['specialty'] = instance.specialty
         elif instance.role == 'Manager':
-            # Include only `exp` for managers
             data['exp'] = instance.exp
-            data.pop('specialty', None)  # Remove `specialty` if it's present
+            data.pop('specialty', None)
         else:
-            # For other roles (e.g., Owner), remove both `exp` and `specialty`
             data.pop('exp', None)
             data.pop('specialty', None)
         

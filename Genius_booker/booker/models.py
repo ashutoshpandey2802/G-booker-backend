@@ -37,6 +37,10 @@ class User(AbstractBaseUser):
     exp = models.IntegerField(null=True, blank=True)  # In years
     specialty = models.CharField(max_length=255, blank=True, null=True)  
     
+    description = models.TextField(null=True, blank=True)  # New field for description
+    image = models.ImageField(upload_to='user_images/', null=True, blank=True)  # New field for user profile image
+    
+    
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []
 
@@ -107,7 +111,7 @@ class Store(models.Model):
         
 # Therapist schedule model
 class TherapistSchedule(models.Model):
-    therapist = models.ForeignKey(User, on_delete=models.CASCADE)
+    therapist = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'Therapist'})
     store = models.ForeignKey(Store, on_delete=models.CASCADE)
     date = models.DateField()
     start_time = models.TimeField()
@@ -119,3 +123,18 @@ class TherapistSchedule(models.Model):
 
     def __str__(self):
         return f'{self.therapist.phone} - {self.date} - {self.start_time} to {self.end_time}'
+
+# Manager schedule model
+class ManagerSchedule(models.Model):
+    manager = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'Manager'})
+    store = models.ForeignKey(Store, on_delete=models.CASCADE)
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    is_day_off = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ['manager', 'store', 'date', 'start_time', 'end_time']
+
+    def __str__(self):
+        return f'{self.manager.phone} - {self.date} - {self.start_time} to {self.end_time}'

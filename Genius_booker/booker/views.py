@@ -8,7 +8,7 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from .models import User, Store, TherapistSchedule
+from .models import ManagerSchedule, User, Store, TherapistSchedule
 from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
@@ -111,6 +111,8 @@ class OwnerLoginView(APIView):
                 for manager in store.managers.all():
                     
                     manager_info = UserSerializer(manager).data
+                    manager_schedule = ManagerSchedule.objects.filter(manager=manager, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
+                    manager_info['schedule'] = list(manager_schedule)
                     manager_data.append(manager_info)
                 
                 # Fetching all therapist details for the store, including their schedule
@@ -180,9 +182,10 @@ class ManagerLoginView(APIView):
                     therapist_schedule.append({
                         "therapist_id": therapist.id,
                         "therapist_name": f'{therapist.first_name} {therapist.last_name}',
-                        "therapist_exp": therapist.exp,
+                        "therapist_exp": str(therapist.exp),
                         "therapist_specialty": therapist.specialty, 
-                        "schedule": list(schedule)
+                        "schedule": list(schedule),
+                        "role": 'Therapist'
                     })
 
                 store_data.append({
@@ -197,6 +200,7 @@ class ManagerLoginView(APIView):
                     },
                     "therapists": therapist_schedule
                 })
+            manager_schedule = ManagerSchedule.objects.filter(manager=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
             # Prepare response data
             data = {
@@ -208,7 +212,8 @@ class ManagerLoginView(APIView):
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone,
-                    "exp": user.exp 
+                    "exp": str(user.exp),
+                    "schedule": list(manager_schedule) 
                 },
                 "stores": store_data
             }
@@ -260,8 +265,9 @@ class TherapistLoginView(APIView):
                     "name": f'{user.first_name or ""} {user.last_name or ""}'.strip(),
                     "email": user.email,
                     "phone": user.phone,
-                    "exp": user.exp,  # Assuming 'exp' is a field on the User model
-                    "specialty": user.specialty
+                    "exp": str(user.exp),  # Assuming 'exp' is a field on the User model
+                    "specialty": user.specialty,
+                    "schedule": list(therapist_schedule)
                 },
                 "stores": store_data
             }
@@ -598,7 +604,12 @@ class UpdateTherapistProfileAPI(APIView):
             serializer.save()
             return Response({
                 "message": "Profile updated successfully",
-                "user_id": user.id
+                "user_id": user.id,  # Return the therapist's ID
+                "therapist_name": f'{user.first_name} {user.last_name}',  # Return therapist's name for confirmation
+                "phone": user.phone,
+                "email": user.email,
+                "experience": user.exp,  # Assuming exp is a field for experience
+                "specialty": user.specialty  # Return updated specialty
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -657,3 +668,101 @@ class StoreStaffDetailsAPI(APIView):
             "managers": manager_data,
             "therapists": therapist_data,
         }, status=status.HTTP_200_OK)
+        
+        
+class AllSchedulesAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, store_id):
+        store = get_object_or_404(Store, id=store_id)
+
+        # Store schedule
+        store_schedule = {
+            "opening_days": store.opening_days,
+            "start_time": store.start_time,
+            "end_time": store.end_time,
+            "lunch_start_time": store.lunch_start_time,
+            "lunch_end_time": store.lunch_end_time
+        }
+
+        # Manager schedules
+        manager_schedules = []
+        for manager in store.managers.all():
+            manager_schedule = ManagerSchedule.objects.filter(manager=manager).values('date', 'start_time', 'end_time')
+            manager_schedules.append({
+                "manager_id": manager.id,
+                "manager_name": f'{manager.first_name} {manager.last_name}',
+                "schedule": list(manager_schedule)
+            })
+
+        # Therapist schedules
+        therapist_schedules = []
+        for therapist in store.therapists.all():
+            therapist_schedule = TherapistSchedule.objects.filter(therapist=therapist).values('date', 'start_time', 'end_time', 'is_day_off')
+            therapist_schedules.append({
+                "therapist_id": therapist.id,
+                "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+                "schedule": list(therapist_schedule)
+            })
+
+        return Response({
+            "store_schedule": store_schedule,
+            "manager_schedules": manager_schedules,
+            "therapist_schedules": therapist_schedules
+        }, status=status.HTTP_200_OK)
+
+
+class StoreScheduleAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, store_id):
+        store = get_object_or_404(Store, id=store_id)
+        return Response({
+            "store_id": store.id,
+            "store_schedule": {
+                "opening_days": store.opening_days,
+                "start_time": store.start_time,
+                "end_time": store.end_time,
+                "lunch_start_time": store.lunch_start_time,
+                "lunch_end_time": store.lunch_end_time
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class ManagerScheduleAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, manager_id):
+        manager = get_object_or_404(User, id=manager_id, role='Manager')
+        schedule = ManagerSchedule.objects.filter(manager=manager).values('date', 'start_time', 'end_time')
+        return Response({
+            "manager_id": manager_id,
+            "schedule": list(schedule)
+        }, status=status.HTTP_200_OK)
+
+class TherapistScheduleAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, therapist_id):
+        therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
+        
+        # Fetch the therapist's schedules
+        schedules = TherapistSchedule.objects.filter(therapist=therapist).values('date', 'start_time', 'end_time', 'is_day_off')
+
+        formatted_schedules = []
+        for schedule in schedules:
+            formatted_schedules.append({
+                "backgroundColor": "#21BA45",  # Customize as needed
+                "borderColor": "#21BA45",      # Customize as needed
+                "editable": True,
+                "start": f"{schedule['date']} {schedule['start_time']}",
+                "end": f"{schedule['date']} {schedule['end_time']}",
+                "title": f"Appointment with {therapist.first_name} {therapist.last_name}",
+            })
+
+        return Response({
+            "therapist_id": therapist_id,
+            "therapist_name": f'{therapist.first_name} {therapist.last_name}',
+            "schedules": formatted_schedules
+        }, status=status.HTTP_200_OK)
+
