@@ -488,23 +488,26 @@ class BookAppointmentAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        therapist_id = request.data.get('therapist_id')
+        therapist_id = request.data.get('therapist', {}).get('value')  # Extract therapist_id
         store_id = request.data.get('store_id')
         date = request.data.get('date')
-        start_time = request.data.get('start_time')
-        end_time = request.data.get('end_time')
+        start_time = request.data.get('startTime')
+        end_time = request.data.get('endTime')
 
+        # Fetch the therapist and store from the database
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
         store = get_object_or_404(Store, id=store_id)
 
+        # Ensure the selected therapist is associated with the selected store
+        if therapist not in store.therapists.all():
+            return Response({"error": "Selected therapist is not assigned to this store"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Parse the date and time
         date = datetime.strptime(date, "%Y-%m-%d").date()
         start_time = datetime.strptime(start_time, "%H:%M").time()
         end_time = datetime.strptime(end_time, "%H:%M").time()
 
-        if therapist not in store.therapists.all():
-            return Response({"error": "Therapist is not assigned to this store"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check for conflicts in the therapist's schedule
+        # Check for any conflicts with the therapist's schedule
         existing_bookings = TherapistSchedule.objects.filter(
             therapist=therapist, store=store, date=date,
             start_time__lt=end_time, end_time__gt=start_time
@@ -513,44 +516,48 @@ class BookAppointmentAPI(APIView):
         if existing_bookings.exists():
             return Response({"error": "Therapist is already booked during this time slot"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Create the appointment data
         schedule_data = {
-            "therapist": therapist_id,
-            "store": store_id,
+            "therapist": therapist.id,
+            "store": store.id,
+            "user": request.user.id,  # Save the user who is booking
             "date": date,
             "start_time": start_time,
             "end_time": end_time
         }
-        
+
+        # Save the appointment via serializer
         serializer = TherapistScheduleSerializer(data=schedule_data)
         if serializer.is_valid():
             appointment = serializer.save()
 
-            # Send SMS after a successful booking
+            # Send SMS to the user confirming the booking
             phone_number = request.user.phone  
             message_body = (
                 f"Dear {request.user.username}, your appointment at {store.name} "
                 f"with {therapist.username} is confirmed for {date} "
                 f"from {start_time} to {end_time}. Thank you!"
             )
-            
             self.send_sms(phone_number, message_body)
+
+            # Notify therapist and manager
+            self.notify_therapist_and_manager(therapist, store, date, start_time, end_time, request.user)
 
             return Response({
                 "message": "Appointment booked successfully",
                 "appointment_id": appointment.id,
                 "therapist_id": therapist.id,
-                "store_id": store.id
+                "store_id": store.id,
+                "user": request.user.username
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def send_sms(self, to, message_body):
-        
         account_sid = settings.TWILIO_ACCOUNT_SID
         auth_token = settings.TWILIO_AUTH_TOKEN
         twilio_phone_number = settings.TWILIO_PHONE_NUMBER
 
         client = Client(account_sid, auth_token)
-
         try:
             message = client.messages.create(
                 from_=twilio_phone_number,
@@ -560,6 +567,31 @@ class BookAppointmentAPI(APIView):
             print(f"SMS sent: {message.sid}")
         except Exception as e:
             print(f"Failed to send SMS: {str(e)}")
+
+    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, user):
+        """
+        Notify the therapist and the store manager about the booked appointment.
+        """
+        phone_number_therapist = therapist.phone
+        phone_number_manager = store.manager.phone if hasattr(store, 'manager') else None
+
+        # Message to the therapist
+        message_body_therapist = (
+            f"Dear {therapist.username}, you have a new appointment at {store.name} "
+            f"on {date} from {start_time} to {end_time}. "
+            f"Booked by: {user.username}."
+        )
+        self.send_sms(phone_number_therapist, message_body_therapist)
+
+        # Message to the manager if available
+        if phone_number_manager:
+            message_body_manager = (
+                f"Dear {store.manager.username}, a new appointment has been booked for {therapist.username} "
+                f"at {store.name} on {date} from {start_time} to {end_time}. "
+                f"Booked by: {user.username}."
+            )
+            self.send_sms(phone_number_manager, message_body_manager)
+
 
 
 # Get Role Details API
@@ -748,7 +780,8 @@ class ManagerScheduleAPI(APIView):
         return Response({
             "manager_id": manager_id,
             "schedule": list(schedule)
-        }, status=status.HTTP_200_OK)
+    
+            }, status=status.HTTP_200_OK)
 
 class TherapistScheduleAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -756,23 +789,53 @@ class TherapistScheduleAPI(APIView):
     def get(self, request, therapist_id):
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
         
-        # Fetch the therapist's schedules
-        schedules = TherapistSchedule.objects.filter(therapist=therapist).values('date', 'start_time', 'end_time', 'is_day_off')
+        # Get start and end date from query params
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
 
+        # If no date range is provided, fetch all schedules
+        if start_date and end_date:
+            schedules = TherapistSchedule.objects.filter(
+                therapist=therapist,
+                date__range=[start_date, end_date]
+            ).values('date', 'start_time', 'end_time', 'is_day_off')
+        else:
+            schedules = TherapistSchedule.objects.filter(
+                therapist=therapist
+            ).values('date', 'start_time', 'end_time', 'is_day_off')
+
+        # If no schedules are found, return an empty list
+        if not schedules.exists():
+            return Response({
+                "therapist_id": therapist_id,
+                "therapist_name": therapist.username,
+                "schedules": []
+            }, status=status.HTTP_200_OK)
+
+        # Format the schedules for calendar display
         formatted_schedules = []
         for schedule in schedules:
-            formatted_schedules.append({
-                "backgroundColor": "#21BA45",  # Customize as needed
-                "borderColor": "#21BA45",      # Customize as needed
-                "editable": True,
-                "start": f"{schedule['date']} {schedule['start_time']}",
-                "end": f"{schedule['date']} {schedule['end_time']}",
-                "title": f"Appointment with {therapist.username}",
-            })
+            if schedule['is_day_off']:
+                formatted_schedules.append({
+                    "backgroundColor": "#FF0000",  # Red for day off
+                    "borderColor": "#FF0000",      # Red for day off
+                    "editable": False,             # Not editable on day off
+                    "start": f"{schedule['date']} {schedule['start_time']}",
+                    "end": f"{schedule['date']} {schedule['end_time']}",
+                    "title": f"{therapist.username} - Day Off",
+                })
+            else:
+                formatted_schedules.append({
+                    "backgroundColor": "#21BA45",  # Green for workdays
+                    "borderColor": "#21BA45",      # Green for workdays
+                    "editable": True,
+                    "start": f"{schedule['date']} {schedule['start_time']}",
+                    "end": f"{schedule['date']} {schedule['end_time']}",
+                    "title": f"Appointment with {therapist.username}",
+                })
 
         return Response({
             "therapist_id": therapist_id,
-            "therapist_name":therapist.username,
+            "therapist_name": therapist.username,
             "schedules": formatted_schedules
         }, status=status.HTTP_200_OK)
-

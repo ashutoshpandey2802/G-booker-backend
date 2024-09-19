@@ -11,7 +11,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'username', 'role', 'experience', 'phone', 'email', 
+            'id','username', 'role', 'experience', 'phone', 'email', 
             'image', 'description', 'is_active', 'schedule'
         ]
 
@@ -132,11 +132,30 @@ class StaffSerializer(serializers.ModelSerializer):
         return user
 
 
-# Therapist Schedule Serializer
 class TherapistScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = TherapistSchedule
         fields = '__all__'
+
+    def validate(self, data):
+        therapist = data.get('therapist')
+        store = data.get('store')
+        date = data.get('date')
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+
+        # Check if the therapist is associated with the store
+        if therapist and store and therapist not in store.therapists.all():
+            raise serializers.ValidationError("Selected therapist is not assigned to this store.")
+
+        # Ensure the end_time is after the start_time
+        if start_time and end_time and start_time >= end_time:
+            raise serializers.ValidationError("End time must be after start time.")
+
+        # Check for any other custom validations you'd like to enforce
+
+        return data
+
 
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
