@@ -485,29 +485,52 @@ class ManageTherapistScheduleAPI(APIView):
 # Appointment Booking API
 
 class BookAppointmentAPI(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = []  # Remove any restrictions so anyone can book an appointment
 
     def post(self, request):
-        therapist_id = request.data.get('therapist', {}).get('value')  # Extract therapist_id
-        store_id = request.data.get('store_id')
+        # Extract data from the request
+        name = request.data.get('name')
+        phone = request.data.get('phone')
+        email = request.data.get('email', None)  
+        therapist_data = request.data.get('therapist', {})  # Therapist is an object
+        therapist_id = therapist_data.get('value')  # Get therapist id from the therapist object
+        store_id = request.data.get('store_id')  # Assuming store_id is sent
         date = request.data.get('date')
         start_time = request.data.get('startTime')
         end_time = request.data.get('endTime')
 
-        # Fetch the therapist and store from the database
-        therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
-        store = get_object_or_404(Store, id=store_id)
+        # Debugging log
+        print(f"Received data: name={name}, phone={phone}, email={email}, therapist_id={therapist_id}, store_id={store_id}, date={date}, start_time={start_time}, end_time={end_time}")
+
+        # Ensure mandatory fields are provided
+        if not name or not phone or not therapist_id or not date or not start_time or not end_time:
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Fetch the therapist from the database
+            therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
+        except User.DoesNotExist:
+            return Response({"error": "Therapist not found or incorrect role"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Assuming store_id is provided (you may adjust if it's part of therapist details)
+        try:
+            store = get_object_or_404(Store, id=store_id)
+        except Store.DoesNotExist:
+            return Response({"error": "Store not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Ensure the selected therapist is associated with the selected store
         if therapist not in store.therapists.all():
             return Response({"error": "Selected therapist is not assigned to this store"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Parse the date and time
-        date = datetime.strptime(date, "%Y-%m-%d").date()
-        start_time = datetime.strptime(start_time, "%H:%M").time()
-        end_time = datetime.strptime(end_time, "%H:%M").time()
+        try:
+            date = datetime.strptime(date, "%Y-%m-%d").date()
+            start_time = datetime.strptime(start_time, "%H:%M").time()
+            end_time = datetime.strptime(end_time, "%H:%M").time()
+        except ValueError:
+            return Response({"error": "Invalid date or time format"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check for any conflicts with the therapist's schedule
+        # Check for conflicts with the therapist's schedule
         existing_bookings = TherapistSchedule.objects.filter(
             therapist=therapist, store=store, date=date,
             start_time__lt=end_time, end_time__gt=start_time
@@ -520,7 +543,9 @@ class BookAppointmentAPI(APIView):
         schedule_data = {
             "therapist": therapist.id,
             "store": store.id,
-            "user": request.user.id,  # Save the user who is booking
+            "user_name": name,  # User name from request
+            "user_phone": phone,  # Phone from request
+            "user_email": email,  # Email from request (optional)
             "date": date,
             "start_time": start_time,
             "end_time": end_time
@@ -532,23 +557,22 @@ class BookAppointmentAPI(APIView):
             appointment = serializer.save()
 
             # Send SMS to the user confirming the booking
-            phone_number = request.user.phone  
             message_body = (
-                f"Dear {request.user.username}, your appointment at {store.name} "
+                f"Dear {name}, your appointment at {store.name} "
                 f"with {therapist.username} is confirmed for {date} "
                 f"from {start_time} to {end_time}. Thank you!"
             )
-            self.send_sms(phone_number, message_body)
+            self.send_sms(phone, message_body)
 
             # Notify therapist and manager
-            self.notify_therapist_and_manager(therapist, store, date, start_time, end_time, request.user)
+            self.notify_therapist_and_manager(therapist, store, date, start_time, end_time, name)
 
             return Response({
                 "message": "Appointment booked successfully",
                 "appointment_id": appointment.id,
                 "therapist_id": therapist.id,
                 "store_id": store.id,
-                "user": request.user.username
+                "user_name": name
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -568,7 +592,7 @@ class BookAppointmentAPI(APIView):
         except Exception as e:
             print(f"Failed to send SMS: {str(e)}")
 
-    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, user):
+    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, user_name):
         """
         Notify the therapist and the store manager about the booked appointment.
         """
@@ -579,7 +603,7 @@ class BookAppointmentAPI(APIView):
         message_body_therapist = (
             f"Dear {therapist.username}, you have a new appointment at {store.name} "
             f"on {date} from {start_time} to {end_time}. "
-            f"Booked by: {user.username}."
+            f"Booked by: {user_name}."
         )
         self.send_sms(phone_number_therapist, message_body_therapist)
 
@@ -588,10 +612,9 @@ class BookAppointmentAPI(APIView):
             message_body_manager = (
                 f"Dear {store.manager.username}, a new appointment has been booked for {therapist.username} "
                 f"at {store.name} on {date} from {start_time} to {end_time}. "
-                f"Booked by: {user.username}."
+                f"Booked by: {user_name}."
             )
             self.send_sms(phone_number_manager, message_body_manager)
-
 
 
 # Get Role Details API
