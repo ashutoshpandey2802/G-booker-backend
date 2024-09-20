@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-1a_z85!p8^ev5m*3*8y^j)tw%9yvbg27xd#+qyda)0jm5a=ldt'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
@@ -171,7 +171,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:9000', 
     'http://127.0.0.1:9000',
     'http://192.168.29.115:9000',
-    'https://genius-booker.vercel.app'
+    'https://genius-booker.vercel.app',
+    'https://genius-booker.onrender.com'
 ]
 AUTHENTICATION_BACKENDS = [ 
     'booker.backends.PhoneBackend',  
