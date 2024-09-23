@@ -47,7 +47,7 @@ class UserSerializer(serializers.ModelSerializer):
         return schedule_data
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        
+        data['username'] = str(instance.username).strip("()").strip("'")
         # Role-based conditional logic
         if instance.role == 'Therapist':
             data['exp'] = instance.exp
