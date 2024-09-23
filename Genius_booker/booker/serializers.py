@@ -47,7 +47,7 @@ class UserSerializer(serializers.ModelSerializer):
         return schedule_data
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data['username'] = str(instance.username).strip("()").strip("'")
+        data['username'] = instance.username
         # Role-based conditional logic
         if instance.role == 'Therapist':
             data['exp'] = instance.exp
@@ -94,7 +94,7 @@ class StaffSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):
-        username=validated_data['username'],
+        username = validated_data['username']
         phone = validated_data['phone']
         password = validated_data['password']
         email = validated_data.get('email', None)
