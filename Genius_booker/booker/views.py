@@ -469,6 +469,25 @@ class ManageTherapistScheduleAPI(APIView):
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def put(self, request, schedule_id):
+        schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
+        therapist = schedule.therapist
+
+        # Check if the user is authorized to update the schedule (Owner, Manager, or the Therapist)
+        if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
+            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Validate and update the schedule
+        serializer = TherapistScheduleSerializer(schedule, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "message": "Schedule updated successfully.",
+                "schedule_id": schedule.id,
+                "therapist_id": therapist.id
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
         if not (request.user.role == 'Owner' or request.user.role == 'Manager'):
@@ -840,9 +859,9 @@ class TherapistScheduleAPI(APIView):
         for schedule in schedules:
             if schedule['is_day_off']:
                 formatted_schedules.append({
-                    "backgroundColor": "#FF0000",  # Red for day off
-                    "borderColor": "#FF0000",      # Red for day off
-                    "editable": False,             # Not editable on day off
+                    "backgroundColor": "#FF0000",  
+                    "borderColor": "#FF0000",      
+                    "editable": False,          
                     "start": f"{schedule['date']} {schedule['start_time']}",
                     "end": f"{schedule['date']} {schedule['end_time']}",
                     "title": f"{therapist.username} - Day Off",
