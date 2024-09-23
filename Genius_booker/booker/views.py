@@ -14,9 +14,21 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
 from django.conf import settings
-
+from datetime import timedelta
+from django.utils import timezone
+import requests
 from twilio.rest import Client
-from django.conf import settings
+from django.utils.crypto import get_random_string
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from rest_framework.throttling import UserRateThrottle
+import base64
+from django.utils.http import urlsafe_base64_decode
+from django.utils.http import urlsafe_base64_encode
+from django.utils.encoding import force_bytes
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from .serializers import (
     RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
     TherapistScheduleSerializer,AddStaffToStoreSerializer,StoreDetailSerializer
@@ -71,6 +83,43 @@ def create_user_and_assign_role(staff_member, store=None):
 
     return user
 
+def get_store_data(user, stores):
+    store_data = []
+    for store in stores:
+        # Manager schedules
+        manager_data = []
+        for manager in store.managers.all():
+            manager_info = UserSerializer(manager).data
+            manager_schedule = ManagerSchedule.objects.filter(manager=manager, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
+            manager_info['schedule'] = list(manager_schedule)
+            manager_data.append(manager_info)
+        
+        # Therapist schedules
+        therapist_data = []
+        for therapist in store.therapists.all():
+            therapist_schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
+            therapist_info = UserSerializer(therapist).data
+            therapist_info['schedule'] = list(therapist_schedule)
+            therapist_data.append(therapist_info)
+
+        store_data.append({
+            "store_id": store.id,
+            "store_name": store.name,
+            "store_address": store.address,
+            "store_phone": store.phone,
+            "store_email": store.email,
+            "store_schedule": {
+                "opening_days": store.opening_days,
+                "start_time": store.start_time,
+                "end_time": store.end_time,
+                "lunch_start_time": store.lunch_start_time,
+                "lunch_end_time": store.lunch_end_time
+            },
+            "managers": manager_data,
+            "therapists": therapist_data
+        })
+    return store_data
+
 
 class StoreListView(APIView):
     permission_classes = [AllowAny]
@@ -80,87 +129,167 @@ class StoreListView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+# def verify_recaptcha(recaptcha_response):
+#     """
+#     Verifies the Google reCAPTCHA response from the user.
+#     """
+#     secret_key = getattr(settings, 'RECAPTCHA_PRIVATE_KEY', None)
+#     if not secret_key:
+#         return False
+
+#     data = {
+#         'secret': secret_key,  # Your secret key from reCAPTCHA admin
+#         'response': recaptcha_response
+#     }
+
+#     try:
+#         r = requests.post('https://www.google.com/recaptcha/api/siteverify', data=data)
+#         result = r.json()
+#         return result.get('success', False)
+#     except requests.exceptions.RequestException:
+#         return False
+
+def verify_recaptcha(recaptcha_response):
+    """Verify reCAPTCHA response with Google's API"""
+    payload = {
+        'secret': settings.RECAPTCHA_SECRET_KEY,
+        'response': recaptcha_response
+    }
+    response = requests.post('https://www.google.com/recaptcha/api/siteverify', data=payload)
+    result = response.json()
+    return result.get('success', False)
+
 # Register API for Owner
+import logging
+
+logger = logging.getLogger(__name__)
+
 class RegisterAPI(APIView):
     def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            
-            user = serializer.save(role='Owner')
-            return Response({"message": "Owner created successfully."}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            recaptcha_response = request.data.get('recaptcha')
+            if not verify_recaptcha(recaptcha_response):
+                return Response({"error": "Invalid reCAPTCHA."}, status=status.HTTP_400_BAD_REQUEST)
+
+            serializer = RegisterSerializer(data=request.data)
+            password = request.data.get('password')
+            password2 = request.data.get('password2')
+
+            if password != password2:
+                return Response({"error": "Passwords do not match"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if serializer.is_valid():
+                user = serializer.save(role='Owner')
+                return Response({"message": "Owner created successfully."}, status=status.HTTP_201_CREATED)
+
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error during registration: {str(e)}")
+            return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+twilio_client = Client("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")
+
+
+
+token_generator = PasswordResetTokenGenerator()
+
+class PasswordResetRequestView(APIView):
+    def post(self, request):
+        phone = request.data.get('phone')
+
+        try:
+            user = User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Generate password reset token and user ID
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = token_generator.make_token(user)
+
+        # Create the password reset URL
+        reset_url = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
+
+        # Send the reset URL to the user's phone via SMS using Twilio
+        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        try:
+            message = client.messages.create(
+                body=f"Hi {user.username},\nUse the link to reset your password: {reset_url}",
+                from_=settings.TWILIO_PHONE_NUMBER,
+                to=user.phone
+            )
+        except Exception as e:
+            return Response({"error": "Failed to send SMS"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"message": "Password reset link sent to your phone."}, status=status.HTTP_200_OK)
+
+class PasswordResetConfirmView(APIView):
+    def post(self, request, uidb64, token):
+        # Decode the user ID from the URL
+        try:
+            uid = urlsafe_base64_decode(uidb64).decode()
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({"error": "Invalid user"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if the token is valid
+        token_generator = PasswordResetTokenGenerator()
+        if not token_generator.check_token(user, token):
+            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate the passwords
+        password = request.data.get('new_password')
+        password2 = request.data.get('confirm_password')
+
+        if password != password2:
+            return Response({"error": "Passwords do not match"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Set the new password and clear reset token
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            return Response({"error": e.messages}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(password)
+        user.save()
+
+        return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
 
 
 # Login API
 class OwnerLoginView(APIView):
-    def post(self, request):
-        phone = request.data.get('phone')
-        password = request.data.get('password')
-        user = authenticate(phone=phone, password=password)
+        def post(self, request):
+            phone = request.data.get('phone')
+            password = request.data.get('password')
+            user = authenticate(phone=phone, password=password)
 
-        if user and user.role == 'Owner':
-            # Fetch the stores owned by the owner
-            stores = Store.objects.filter(owner=user).prefetch_related('managers', 'therapists')
-            refresh = RefreshToken.for_user(user)
+            if user and user.role == 'Owner':
+                # Fetch the stores owned by the owner
+                stores = Store.objects.filter(owner=user).prefetch_related('managers', 'therapists')
+                refresh = RefreshToken.for_user(user)
 
-            # Prepare store data including managers and therapists with all details
-            store_data = []
-            for store in stores:
-                # Fetching all manager details for the store
-                manager_data = []
-                for manager in store.managers.all():
-                    
-                    manager_info = UserSerializer(manager).data
-                    manager_schedule = ManagerSchedule.objects.filter(manager=manager, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
-                    manager_info['schedule'] = list(manager_schedule)
-                    manager_data.append(manager_info)
-                
-                # Fetching all therapist details for the store, including their schedule
-                therapist_data = []
-                for therapist in store.therapists.all():
-                    therapist_schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
-                    therapist_info = UserSerializer(therapist).data
-                    therapist_info['schedule'] = list(therapist_schedule)
-                    therapist_data.append(therapist_info)
+                # Prepare store data including managers and therapists with all details
+                store_data =  get_store_data(user, stores)
 
-                store_data.append({
-                    "store_id": store.id,
-                    "store_name": store.name,
-                    "store_address": store.address,
-                    "store_phone": store.phone,
-                    "store_email": store.email,
-                    "store_schedule": {
-                        "opening_days": store.opening_days,
-                        "start_time": store.start_time,
-                        "end_time": store.end_time,
-                        "lunch_start_time": store.lunch_start_time,
-                        "lunch_end_time": store.lunch_end_time
+                # Prepare response data
+                data = {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                    "owner": {
+                        "role": user.role,
+                        "owner_id": user.id,
+                        "name": user.username,
+                        "email": user.email,
+                        "phone": user.phone
                     },
-                    "managers": manager_data,
-                    "therapists": therapist_data
-                })
+                    "stores": store_data
+                }
 
-            # Prepare response data
-            data = {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-                "owner": {
-                    "role": user.role,
-                    "owner_id": user.id,
-                    "name": user.username,
-                    "email": user.email,
-                    "phone": user.phone
-                },
-                "stores": store_data
-            }
+                return Response(data, status=status.HTTP_200_OK)
 
-            return Response(data, status=status.HTTP_200_OK)
-
-        return Response({"error": "Login with owner credentials"}, status=status.HTTP_403_FORBIDDEN)
-
-
-
-
+            return Response({"error": "Login with owner credentials"}, status=status.HTTP_403_FORBIDDEN)
+    
 class ManagerLoginView(APIView):
     def post(self, request):
         phone = request.data.get('phone')
@@ -172,34 +301,10 @@ class ManagerLoginView(APIView):
             stores = Store.objects.filter(managers=user)
             refresh = RefreshToken.for_user(user)
 
-            # Prepare store data and the therapists' schedule
-            store_data = []
-            for store in stores:
-                therapist_schedule = []
-                therapists = store.therapists.all()
-                for therapist in therapists:
-                    schedule = TherapistSchedule.objects.filter(therapist=therapist, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
-                    therapist_schedule.append({
-                        "therapist_id": therapist.id,
-                        "therapist_name": therapist.username,
-                        "therapist_exp": str(therapist.exp),
-                        "therapist_specialty": therapist.specialty, 
-                        "schedule": list(schedule),
-                        "role": 'Therapist'
-                    })
+            # Use helper function to prepare store data
+            store_data = get_store_data(user, stores)
 
-                store_data.append({
-                    "store_id": store.id,
-                    "store_name": store.name,
-                    "store_schedule": {
-                        "opening_days": store.opening_days,
-                        "start_time": store.start_time,
-                        "end_time": store.end_time,
-                        "lunch_start_time": store.lunch_start_time,
-                        "lunch_end_time": store.lunch_end_time
-                    },
-                    "therapists": therapist_schedule
-                })
+            # Fetch manager's own schedule
             manager_schedule = ManagerSchedule.objects.filter(manager=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
             # Prepare response data
@@ -209,11 +314,11 @@ class ManagerLoginView(APIView):
                 "manager": {
                     "role": user.role,
                     "manager_id": user.id,
-                    "name": user.username ,
+                    "name": user.username,
                     "email": user.email,
                     "phone": user.phone,
                     "exp": str(user.exp),
-                    "schedule": list(manager_schedule) 
+                    "schedule": list(manager_schedule)
                 },
                 "stores": store_data
             }
@@ -233,27 +338,15 @@ class TherapistLoginView(APIView):
 
         if user and user.role == 'Therapist':
             refresh = RefreshToken.for_user(user)
+
             # Fetch the stores associated with the therapist
             stores = Store.objects.filter(therapists=user)
 
-            # Prepare store data and therapist's schedule
-            store_data = []
-            for store in stores:
-                # Fetch therapist's schedule in the current store
-                therapist_schedule = TherapistSchedule.objects.filter(therapist=user, store=store).values('date', 'start_time', 'end_time', 'is_day_off')
+            # Use helper function to prepare store data
+            store_data = get_store_data(user, stores)
 
-                store_data.append({
-                    "store_id": store.id,
-                    "store_name": store.name,
-                    "store_schedule": {
-                        "opening_days": store.opening_days,
-                        "start_time": store.start_time,
-                        "end_time": store.end_time,
-                        "lunch_start_time": store.lunch_start_time,
-                        "lunch_end_time": store.lunch_end_time
-                    },
-                    "therapist_schedule": list(therapist_schedule)  # Add therapist schedule for this store
-                })
+            # Fetch therapist's own schedule
+            therapist_schedule = TherapistSchedule.objects.filter(therapist=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
             # Prepare response data
             data = {
@@ -262,10 +355,10 @@ class TherapistLoginView(APIView):
                 "therapist": {
                     "role": user.role,
                     "therapist_id": user.id,
-                    "name": user.username, 
+                    "name": user.username,
                     "email": user.email,
                     "phone": user.phone,
-                    "exp": str(user.exp),  # Assuming 'exp' is a field on the User model
+                    "exp": str(user.exp),
                     "specialty": user.specialty,
                     "schedule": list(therapist_schedule)
                 },
@@ -275,6 +368,7 @@ class TherapistLoginView(APIView):
             return Response(data, status=status.HTTP_200_OK)
 
         return Response({"error": "Login with therapist credentials"}, status=status.HTTP_403_FORBIDDEN)
+
 
 
 
@@ -342,7 +436,20 @@ class CreateStoreWithStaffAPI(APIView):
         else:
             return Response(store_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class DeleteStoreAPI(APIView):
+    authentication_classes = [JWTAuthentication]  # Ensure you're using JWT for authentication
+    permission_classes = [IsAuthenticated, IsOwner]  # Only owners can delete the store
 
+    def delete(self, request, store_id):
+        store = get_object_or_404(Store, id=store_id)
+
+        # Check if the user is the owner of the store
+        if store.owner != request.user:
+            return Response({"detail": "You do not have permission to delete this store."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Perform the deletion
+        store.delete()
+        return Response({"detail": "Store deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
 # Add Staff to existing store API
 class AddStaffAPI(APIView):
@@ -416,9 +523,18 @@ class ManageStaffAPI(APIView):
             pass  # Owner can modify all
         elif request.user.role == 'Manager' and request.user in store.managers.all() and staff_member.role == 'Therapist':
             pass  # Manager can modify Therapists only
+        elif request.user.role == 'Therapist' and request.user == staff_member:
+            pass  # Therapists can only modify their own schedules
         else:
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
+        # Check if there is schedule data in the request
+        schedule_data = request.data.get('schedule', None)
+        if schedule_data:
+            # Update the therapist's schedule
+            self.update_schedule(staff_member, store, schedule_data)
+
+        # Update staff member details (if there are any other updates)
         serializer = StaffSerializer(staff_member, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -438,6 +554,8 @@ class ManageStaffAPI(APIView):
             pass  # Owner can delete all
         elif request.user.role == 'Manager' and request.user in store.managers.all() and staff_member.role == 'Therapist':
             pass  # Manager can delete Therapists only
+        elif request.user.role == 'Therapist' and request.user == staff_member:
+            pass  # Therapists can only delete their own schedules
         else:
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
         
@@ -447,6 +565,24 @@ class ManageStaffAPI(APIView):
             "staff_id": staff_member.id,
             "store_id": store.id
         }, status=status.HTTP_200_OK)
+
+    def update_schedule(self, therapist, store, schedule_data):
+        """
+        Updates the schedule for the given therapist in the specified store.
+        """
+        # Assuming you have a TherapistSchedule model
+        for schedule_item in schedule_data:
+            TherapistSchedule.objects.update_or_create(
+                therapist=therapist,
+                store=store,
+                start_time=schedule_item.get('start'),
+                defaults={
+                    'title': schedule_item.get('title'),
+                    'end_time': schedule_item.get('end'),
+                    'background_color': schedule_item.get('backgroundColor')
+                }
+            )
+
 
 
 # Manage Therapist Schedules and Appointments API
@@ -826,7 +962,7 @@ class ManagerScheduleAPI(APIView):
             }, status=status.HTTP_200_OK)
 
 class TherapistScheduleAPI(APIView):
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
 
     def get(self, request, therapist_id):
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')

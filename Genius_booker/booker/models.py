@@ -27,7 +27,7 @@ class User(AbstractBaseUser):
     
     username = models.CharField(max_length=30)
     phone = models.CharField(max_length=15, unique=True)
-    email = models.EmailField(null=True, blank=True, unique=True)
+    email = models.EmailField(null=True, blank=True, unique=True)  # Ensure this works with unique but optional
     role = models.CharField(max_length=10, choices=ROLES, default='Owner')
     
     is_staff = models.BooleanField(default=False)
@@ -39,7 +39,6 @@ class User(AbstractBaseUser):
     description = models.TextField(null=True, blank=True)  # New field for description
     image = models.ImageField(upload_to='user_images/', null=True, blank=True)  # New field for user profile image
     
-    
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = ['username']
 
@@ -48,7 +47,10 @@ class User(AbstractBaseUser):
     def __str__(self):
         return self.username if self.username else self.phone
 
-    # Fetch stores owned by this user (if Owner)
+    def clean(self):
+        if not self.phone:
+            raise ValidationError("Phone number is required")
+
     def get_store_details(self):
         if self.role != 'Owner':
             return None
@@ -72,7 +74,7 @@ class Store(models.Model):
     therapists = models.ManyToManyField(User, related_name="therapist_stores", limit_choices_to={'role': 'Therapist'})
     phone = models.CharField(max_length=15)
     email = models.EmailField(null=True, blank=True)
-    opening_days = models.JSONField()
+    opening_days = models.JSONField()  # Ensure proper validation of format
     start_time = models.TimeField()
     end_time = models.TimeField()
     lunch_start_time = models.TimeField(null=True, blank=True)
@@ -81,15 +83,16 @@ class Store(models.Model):
 
     class Meta:
         unique_together = ['name', 'address']
+        indexes = [
+            models.Index(fields=['name', 'address']),  # For better performance
+        ]
 
     def __str__(self):
         return self.name
 
-    # Get the list of therapists for a store
     def get_therapists(self):
         return [{'therapist_name': therapist.username} for therapist in self.therapists.all()]
 
-    # Get managers and assigned therapists for each manager in the store
     def get_managers_with_therapists(self):
         managers_with_therapists = []
         for manager in self.managers.all():
@@ -99,16 +102,15 @@ class Store(models.Model):
             }
             managers_with_therapists.append(manager_info)
         return managers_with_therapists
-    
+
     def get_manager_and_therapist_names(self):
         manager_names = [manager.username for manager in self.managers.all()]
         therapist_names = [therapist.username for therapist in self.therapists.all()]
         return {
             'managers': manager_names,
             'therapists': therapist_names
-        
         }
-        
+
 # Therapist schedule model
 class TherapistSchedule(models.Model):
     therapist = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'Therapist'})
@@ -120,6 +122,9 @@ class TherapistSchedule(models.Model):
 
     class Meta:
         unique_together = ['therapist', 'store', 'date', 'start_time', 'end_time']
+        indexes = [
+            models.Index(fields=['therapist', 'store', 'date']),  # For performance
+        ]
 
     def __str__(self):
         return f'{self.therapist.phone} - {self.date} - {self.start_time} to {self.end_time}'
@@ -135,6 +140,9 @@ class ManagerSchedule(models.Model):
 
     class Meta:
         unique_together = ['manager', 'store', 'date', 'start_time', 'end_time']
+        indexes = [
+            models.Index(fields=['manager', 'store', 'date']),  # For performance
+        ]
 
     def __str__(self):
         return f'{self.manager.phone} - {self.date} - {self.start_time} to {self.end_time}'

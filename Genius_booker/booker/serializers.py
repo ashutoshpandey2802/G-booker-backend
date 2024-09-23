@@ -62,20 +62,52 @@ class UserSerializer(serializers.ModelSerializer):
         return data
 # Register Serializer
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+    password2 = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
 
     class Meta:
         model = User
-        fields = ['username','email', 'phone', 'password']
+        fields = ['username', 'email', 'phone', 'password', 'password2']
+
+    def validate(self, data):
+        """
+        Check that the two password fields match.
+        """
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password": "Passwords do not match."})
+        
+        # Optionally, add more password validation rules (Django's validate_password is already called)
+        return data
+
+    def validate_email(self, value):
+        """
+        Check if the email is valid and not already in use.
+        """
+        if value and User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email is already in use.")
+        return value
+
+    def validate_phone(self, value):
+        """
+        Check if the phone number is unique.
+        """
+        if User.objects.filter(phone=value).exists():
+            raise serializers.ValidationError("Phone number is already in use.")
+        return value
 
     def create(self, validated_data):
+        # Remove password2 as it's not needed in the User model
+        validated_data.pop('password2')
+        
+        # Create user
         user = User.objects.create_user(
             username=validated_data['username'],
             phone=validated_data['phone'],
             password=validated_data['password'],
-            email=validated_data.get('email', None)
+            email=validated_data.get('email', None)  # Email is optional
         )
         return user
+
 
 # Store Serializer
 class StoreSerializer(serializers.ModelSerializer):
