@@ -15,8 +15,10 @@ from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
 from django.conf import settings
 from datetime import timedelta
+from .models import OTP  # Adjust the import based on your project structure
 from django.utils import timezone
 import requests
+from random import randint
 from twilio.rest import Client
 from django.utils.crypto import get_random_string
 from django.contrib.auth.hashers import make_password
@@ -27,13 +29,16 @@ from rest_framework.throttling import UserRateThrottle
 import base64
 from django.utils.http import urlsafe_base64_decode
 from django.utils.http import urlsafe_base64_encode
+from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from .serializers import (
     RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
     TherapistScheduleSerializer,AddStaffToStoreSerializer,StoreDetailSerializer
 )
 
+
+
+twilio_client = Client("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")
 # Utility to create user and add them to store roles
 @transaction.atomic
 def create_user_and_assign_role(staff_member, store=None):
@@ -129,35 +134,36 @@ class StoreListView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-# def verify_recaptcha(recaptcha_response):
-#     """
-#     Verifies the Google reCAPTCHA response from the user.
-#     """
-#     secret_key = getattr(settings, 'RECAPTCHA_PRIVATE_KEY', None)
-#     if not secret_key:
-#         return False
-
-#     data = {
-#         'secret': secret_key,  # Your secret key from reCAPTCHA admin
-#         'response': recaptcha_response
-#     }
-
-#     try:
-#         r = requests.post('https://www.google.com/recaptcha/api/siteverify', data=data)
-#         result = r.json()
-#         return result.get('success', False)
-#     except requests.exceptions.RequestException:
-#         return False
-
 def verify_recaptcha(recaptcha_response):
-    """Verify reCAPTCHA response with Google's API"""
-    payload = {
-        'secret': settings.RECAPTCHA_SECRET_KEY,
+    """
+    Verifies the Google reCAPTCHA response from the user.
+    """
+    secret_key = getattr(settings, 'RECAPTCHA_PRIVATE_KEY', None)
+    if not secret_key:
+        return False
+
+    data = {
+        'secret': secret_key,  # Your secret key from reCAPTCHA admin
         'response': recaptcha_response
     }
-    response = requests.post('https://www.google.com/recaptcha/api/siteverify', data=payload)
-    result = response.json()
-    return result.get('success', False)
+
+    try:
+        r = requests.post('https://www.google.com/recaptcha/api/siteverify', data=data)
+        result = r.json()
+        return result.get('success', False)
+    except requests.exceptions.RequestException:
+        return False
+
+#testing
+# def verify_recaptcha(recaptcha_response):
+#     """Verify reCAPTCHA response with Google's API"""
+#     payload = {
+#         'secret': settings.RECAPTCHA_SECRET_KEY,
+#         'response': recaptcha_response
+#     }
+#     response = requests.post('https://www.google.com/recaptcha/api/siteverify', data=payload)
+#     result = response.json()
+#     return result.get('success', False)
 
 # Register API for Owner
 import logging
@@ -180,7 +186,22 @@ class RegisterAPI(APIView):
 
             if serializer.is_valid():
                 user = serializer.save(role='Owner')
-                return Response({"message": "Owner created successfully."}, status=status.HTTP_201_CREATED)
+                user.is_active = False  # User is not active until verified
+                user.save()
+
+                # Generate OTP
+                otp_code = str(randint(100000, 999999))
+                OTP.objects.create(phone=user.phone, otp=otp_code)
+
+                # Send OTP via SMS using Twilio
+                client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+                client.messages.create(
+                    body=f"Your OTP for account verification is: {otp_code}",
+                    from_=settings.TWILIO_PHONE_NUMBER,
+                    to=user.phone
+                )
+
+                return Response({"message": "Owner created successfully. An OTP has been sent to your phone."}, status=status.HTTP_201_CREATED)
 
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
@@ -189,7 +210,37 @@ class RegisterAPI(APIView):
 
 
 
-twilio_client = Client("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")
+class VerifyOTPView(APIView):
+    def post(self, request):
+        phone = request.data.get('phone')
+        otp = request.data.get('otp')
+
+        try:
+            otp_record = OTP.objects.get(phone=phone)
+
+            if otp_record.is_expired():
+                return Response({"error": "OTP has expired"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if otp_record.otp == otp:
+                user = User.objects.get(phone=phone)
+                user.is_verified = True
+                user.is_active = True  # User can now log in
+                user.save()
+
+                # Delete the OTP record after verification
+                otp_record.delete()
+
+                return Response({"message": "Account verified successfully! You can now log in."}, status=status.HTTP_200_OK)
+
+            return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+
+        except OTP.DoesNotExist:
+            return Response({"error": "OTP not found"}, status=status.HTTP_404_NOT_FOUND)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
 
 
 

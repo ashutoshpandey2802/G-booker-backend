@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.core.exceptions import ValidationError
+import random
+import time
 
 # Custom user manager
 class UserManager(BaseUserManager):
@@ -35,7 +37,7 @@ class User(AbstractBaseUser):
     
     exp = models.IntegerField(null=True, blank=True)  # In years
     specialty = models.CharField(max_length=255, blank=True, null=True)  
-    
+    is_verified = models.BooleanField(default=False)
     description = models.TextField(null=True, blank=True)  # New field for description
     image = models.ImageField(upload_to='user_images/', null=True, blank=True)  # New field for user profile image
     
@@ -146,3 +148,12 @@ class ManagerSchedule(models.Model):
 
     def __str__(self):
         return f'{self.manager.phone} - {self.date} - {self.start_time} to {self.end_time}'
+
+
+class OTP(models.Model):
+    phone = models.CharField(max_length=15, unique=True)
+    otp = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def is_expired(self):
+        return (time.time() - self.created_at.timestamp()) > 300  # OTP valid for 5 minutes

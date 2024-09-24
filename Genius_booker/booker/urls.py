@@ -5,12 +5,13 @@ from .views import (
     UpdateTherapistProfileAPI, RoleDetailsAPI, ManagerLoginView, StoreListView, 
     TherapistLoginView, OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,
     AddStaffToStoreView, AllSchedulesAPI, StoreScheduleAPI, ManagerScheduleAPI,
-    TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView
+    TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView,VerifyOTPView
 )
 
 urlpatterns = [
     # User Registration and Login APIs
     path('register/', RegisterAPI.as_view(), name='register'),
+    path('verify-otp/', VerifyOTPView.as_view(), name='verify-otp'),
     path('login/owner/', OwnerLoginView.as_view(), name='owner-login'),
     path('login/manager/', ManagerLoginView.as_view(), name='manager-login'),
     path('login/therapist/', TherapistLoginView.as_view(), name='therapist-login'),
