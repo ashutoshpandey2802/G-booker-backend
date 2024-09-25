@@ -292,7 +292,7 @@ class PasswordResetRequestView(APIView):
         token = token_generator.make_token(user)
 
         # Create the password reset URL
-        reset_url = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
+        reset_url = f"{settings.FRONTEND_URL}/#/reset-password/?{uid}/{token}/"
 
         # Send the reset URL to the user's phone via SMS using Twilio
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
