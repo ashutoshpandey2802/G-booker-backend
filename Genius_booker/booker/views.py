@@ -14,6 +14,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
 from django.conf import settings
+import logging
 from datetime import timedelta
 from .models import OTP  # Adjust the import based on your project structure
 from django.utils import timezone
@@ -133,49 +134,36 @@ class StoreListView(APIView):
         serializer = StoreDetailSerializer(stores, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-
+logger = logging.getLogger(__name__)
 def verify_recaptcha(recaptcha_response):
     """
-    Verifies the Google reCAPTCHA response from the user.
+    Verifies the Cloudflare Turnstile CAPTCHA response from the user.
     """
-    secret_key = getattr(settings, 'RECAPTCHA_PRIVATE_KEY', None)
+    secret_key = getattr(settings, 'TURNSTILE_SECRET_KEY', None)
     if not secret_key:
         return False
 
+    url = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
     data = {
-        'secret': secret_key,  # Your secret key from reCAPTCHA admin
-        'response': recaptcha_response
+        'secret': secret_key,  # Your Cloudflare Turnstile secret key
+        'response': recaptcha_response  # The token received from the frontend
     }
 
     try:
-        r = requests.post('https://www.google.com/recaptcha/api/siteverify', data=data)
-        result = r.json()
-        return result.get('success', False)
-    except requests.exceptions.RequestException:
+        response = requests.post(url, data=data)
+        result = response.json()
+        return result.get('success', False)  # Check if CAPTCHA verification was successful
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error during CAPTCHA verification: {str(e)}")
         return False
 
-#testing
-# def verify_recaptcha(recaptcha_response):
-#     """Verify reCAPTCHA response with Google's API"""
-#     payload = {
-#         'secret': settings.RECAPTCHA_SECRET_KEY,
-#         'response': recaptcha_response
-#     }
-#     response = requests.post('https://www.google.com/recaptcha/api/siteverify', data=payload)
-#     result = response.json()
-#     return result.get('success', False)
-
-# Register API for Owner
-import logging
-
-logger = logging.getLogger(__name__)
 
 class RegisterAPI(APIView):
     def post(self, request):
         try:
             recaptcha_response = request.data.get('recaptcha')
             if not verify_recaptcha(recaptcha_response):
-                return Response({"error": "Invalid reCAPTCHA."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid CAPTCHA."}, status=status.HTTP_400_BAD_REQUEST)
 
             serializer = RegisterSerializer(data=request.data)
             password = request.data.get('password')
@@ -207,7 +195,6 @@ class RegisterAPI(APIView):
         except Exception as e:
             logger.error(f"Error during registration: {str(e)}")
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 
 class VerifyOTPView(APIView):
