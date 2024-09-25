@@ -680,15 +680,19 @@ class ManageTherapistScheduleAPI(APIView):
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = TherapistScheduleSerializer(data=request.data)
-        if serializer.is_valid():
-            schedule = serializer.save(therapist=therapist)
-            return Response({
-                "message": "Schedule created successfully.",
-                "schedule_id": schedule.id,
-                "therapist_id": therapist.id
-            }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        schedule_data = request.data.get('schedule', [])
+        if not schedule_data:
+            return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        for schedule_item in schedule_data:
+            serializer = TherapistScheduleSerializer(data=schedule_item)
+            if serializer.is_valid():
+                serializer.save(therapist=therapist)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "Schedule created successfully."}, status=status.HTTP_201_CREATED)
+
 
     def put(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
@@ -698,15 +702,18 @@ class ManageTherapistScheduleAPI(APIView):
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = TherapistScheduleSerializer(schedule, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({
-                "message": "Schedule updated successfully.",
-                "schedule_id": schedule.id,
-                "therapist_id": therapist.id
-            }, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        schedule_data = request.data.get('schedule', [])
+        if not schedule_data:
+            return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        for schedule_item in schedule_data:
+            serializer = TherapistScheduleSerializer(schedule, data=schedule_item, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "Schedule updated successfully."}, status=status.HTTP_200_OK)
 
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)

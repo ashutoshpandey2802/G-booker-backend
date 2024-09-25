@@ -165,14 +165,17 @@ class StaffSerializer(serializers.ModelSerializer):
 
 
 class TherapistScheduleSerializer(serializers.ModelSerializer):
+    start = serializers.DateTimeField(source='start_time')
+    end = serializers.DateTimeField(source='end_time')
+    backgroundColor = serializers.CharField(source='color', required=False)
+
     class Meta:
         model = TherapistSchedule
-        fields = '__all__'
+        fields = ['id', 'therapist', 'store', 'date', 'start', 'end', 'backgroundColor', 'title']
 
     def validate(self, data):
         therapist = data.get('therapist')
         store = data.get('store')
-        date = data.get('date')
         start_time = data.get('start_time')
         end_time = data.get('end_time')
 
@@ -183,8 +186,6 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         # Ensure the end_time is after the start_time
         if start_time and end_time and start_time >= end_time:
             raise serializers.ValidationError("End time must be after start time.")
-
-        # Check for any other custom validations you'd like to enforce
 
         return data
 
