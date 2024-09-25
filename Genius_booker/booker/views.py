@@ -197,70 +197,79 @@ class RegisterAPI(APIView):
             if not verify_recaptcha(recaptcha_response):
                 return Response({"error": "Invalid CAPTCHA."}, status=status.HTTP_400_BAD_REQUEST)
 
-            serializer = RegisterSerializer(data=request.data)
+            # Extract phone number from request data
+            phone = request.data.get('phone')
+            if not phone:
+                return Response({"error": "Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if a user with this phone number already exists
+            if User.objects.filter(phone=phone).exists():
+                return Response({"error": "Phone number already in use"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Generate OTP and send it via SMS
+            otp_code = str(randint(100000, 999999))
+            OTP.objects.create(phone=phone, otp=otp_code)
+
+            # Send OTP via SMS using Twilio
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            try:
+                formatted_phone = format_phone_number(phone, 'IN')
+                client.messages.create(
+                    body=f"Your OTP for account verification is: {otp_code}",
+                    from_=settings.TWILIO_PHONE_NUMBER,
+                    to=formatted_phone
+                )
+            except TwilioRestException as e:
+                logger.error(f"Twilio error: {str(e)}")
+                return Response({"error": "Failed to send OTP. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"message": "OTP sent successfully. Please verify your phone to complete registration."}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error during OTP send: {str(e)}")
+            return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+class CompleteRegistrationAPI(APIView):
+    def post(self, request):
+        try:
+            otp = request.data.get('otp')
+            phone = request.data.get('phone')
+
+            # Validate OTP
+            try:
+                otp_record = OTP.objects.get(phone=phone, otp=otp)
+                if otp_record.is_expired():
+                    return Response({"error": "OTP has expired"}, status=status.HTTP_400_BAD_REQUEST)
+            except OTP.DoesNotExist:
+                return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # OTP is valid, proceed with registration
             password = request.data.get('password')
             password2 = request.data.get('password2')
 
             if password != password2:
                 return Response({"error": "Passwords do not match"}, status=status.HTTP_400_BAD_REQUEST)
 
+            # Collect other registration data (e.g., username)
+            serializer = RegisterSerializer(data=request.data)
             if serializer.is_valid():
-                user = serializer.save(role='Owner')
-                user.is_active = False  # User is not active until OTP is verified
-                user.is_verified = False  # Adding a verification field
+                user = serializer.save(phone=phone, role='Owner', is_verified=True)
+                user.is_active = True  # User can now log in
                 user.save()
 
-                # Generate OTP
-                otp_code = str(randint(100000, 999999))
-                OTP.objects.create(phone=user.phone, otp=otp_code)
+                # Delete OTP after successful registration
+                otp_record.delete()
 
-                # Send OTP via SMS using Twilio
-                client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-                try:
-                    formatted_phone = format_phone_number(user.phone, 'IN')
-                    client.messages.create(
-                        body=f"Your OTP for account verification is: {otp_code}",
-                        from_=settings.TWILIO_PHONE_NUMBER,
-                        to=formatted_phone
-                    )
-                except TwilioRestException as e:
-                    logger.error(f"Twilio error: {str(e)}")
-                    return Response({"error": "Failed to send OTP. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-                return Response({"message": "Owner created successfully. An OTP has been sent to your phone."}, status=status.HTTP_201_CREATED)
+                return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
 
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
         except Exception as e:
             logger.error(f"Error during registration: {str(e)}")
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-
-class VerifyOTPView(APIView):
-    def post(self, request):
-        otp = request.data.get('otp')
-
-        try:
-            otp_record = OTP.objects.get(otp=otp)
-
-            if otp_record.is_expired():
-                return Response({"error": "OTP has expired"}, status=status.HTTP_400_BAD_REQUEST)
-
-            user = User.objects.get(phone=otp_record.phone)  # Fetch user using the phone number from the OTP record
-            user.is_verified = True
-            user.is_active = True  # User can now log in
-            user.save()
-
-            # Delete the OTP record after verification
-            otp_record.delete()
-
-            return Response({"message": "Account verified successfully! You can now log in."}, status=status.HTTP_200_OK)
-
-        except OTP.DoesNotExist:
-            return Response({"error": "OTP not found"}, status=status.HTTP_404_NOT_FOUND)
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-
 
 
 
