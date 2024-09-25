@@ -127,7 +127,7 @@ class TherapistSchedule(models.Model):
     end_time = models.TimeField()
     is_day_off = models.BooleanField(default=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')  # New status field
-
+    title = models.CharField(max_length=255,null=True, blank=True)
     class Meta:
         unique_together = ['therapist', 'store', 'date', 'start_time', 'end_time']
         indexes = [
