@@ -13,6 +13,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
+from twilio.base.exceptions import TwilioRestException
 from django.conf import settings
 import logging
 from datetime import timedelta
@@ -139,8 +140,9 @@ def verify_recaptcha(recaptcha_response):
     """
     Verifies the Cloudflare Turnstile CAPTCHA response from the user.
     """
-    secret_key = getattr(settings, 'TURNSTILE_SECRET_KEY', None)
+    secret_key = settings.TURNSTILE_SECRET_KEY
     if not secret_key:
+        logger.error("TURNSTILE_SECRET_KEY is not set in environment variables.")
         return False
 
     url = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
@@ -152,10 +154,16 @@ def verify_recaptcha(recaptcha_response):
     try:
         response = requests.post(url, data=data)
         result = response.json()
-        return result.get('success', False)  # Check if CAPTCHA verification was successful
+        logger.debug(f"CAPTCHA verification result: {result}")  # Log the full response
+        if not result.get('success', False):
+            logger.error(f"CAPTCHA failed with error codes: {result.get('error-codes')}")
+            return False
+        return True
+    
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during CAPTCHA verification: {str(e)}")
         return False
+
 
 
 class RegisterAPI(APIView):
@@ -183,11 +191,16 @@ class RegisterAPI(APIView):
 
                 # Send OTP via SMS using Twilio
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-                client.messages.create(
-                    body=f"Your OTP for account verification is: {otp_code}",
-                    from_=settings.TWILIO_PHONE_NUMBER,
-                    to=user.phone
+                try:
+                    client.messages.create(
+                        body=f"Your OTP for account verification is: {otp_code}",
+                        from_=settings.TWILIO_PHONE_NUMBER,
+                        to=user.phone
                 )
+                except TwilioRestException as e:
+                    logger.error(f"Twilio error: {str(e)}")
+                    return Response({"error": "Failed to send OTP. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
                 return Response({"message": "Owner created successfully. An OTP has been sent to your phone."}, status=status.HTTP_201_CREATED)
 
