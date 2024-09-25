@@ -675,9 +675,10 @@ class ManageTherapistScheduleAPI(APIView):
     def post(self, request, therapist_id):
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
 
-        if not (request.user.role == 'Owner' or request.user.role == 'Manager'):
+        # Owners, Managers, and the therapist themselves can create the schedule
+        if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-        
+
         serializer = TherapistScheduleSerializer(data=request.data)
         if serializer.is_valid():
             schedule = serializer.save(therapist=therapist)
@@ -692,11 +693,10 @@ class ManageTherapistScheduleAPI(APIView):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
         therapist = schedule.therapist
 
-        # Check if the user is authorized to update the schedule (Owner, Manager, or the Therapist)
+        # Owners, Managers, and the therapist themselves can update the schedule
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Validate and update the schedule
         serializer = TherapistScheduleSerializer(schedule, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -706,11 +706,15 @@ class ManageTherapistScheduleAPI(APIView):
                 "therapist_id": therapist.id
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
-        if not (request.user.role == 'Owner' or request.user.role == 'Manager'):
+        therapist = schedule.therapist
+
+        # Owners, Managers, and the therapist themselves can delete the schedule
+        if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+
         therapist_id = schedule.therapist.id
         schedule.delete()
         return Response({
@@ -718,7 +722,6 @@ class ManageTherapistScheduleAPI(APIView):
             "schedule_id": schedule_id,
             "therapist_id": therapist_id
         }, status=status.HTTP_200_OK)
-
 
 # Appointment Booking API
 
