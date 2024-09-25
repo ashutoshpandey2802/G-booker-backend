@@ -14,6 +14,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
+from phonenumbers import parse, is_valid_number, format_number, PhoneNumberFormat
 from django.conf import settings
 import logging
 from datetime import timedelta
@@ -21,6 +22,7 @@ from .models import OTP  # Adjust the import based on your project structure
 from django.utils import timezone
 import requests
 from random import randint
+import phonenumbers
 from twilio.rest import Client
 from django.utils.crypto import get_random_string
 from django.contrib.auth.hashers import make_password
@@ -166,6 +168,17 @@ def verify_recaptcha(recaptcha_response):
 
 
 
+def format_phone_number(phone):
+    try:
+        parsed_number = phonenumbers.parse(phone, "US")  # Use "US" or the appropriate country code
+        if phonenumbers.is_valid_number(parsed_number):
+            return phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.E164)
+        else:
+            raise ValueError("Invalid phone number format")
+    except Exception as e:
+        raise ValueError(f"Error formatting phone number: {str(e)}")
+
+
 class RegisterAPI(APIView):
     def post(self, request):
         try:
@@ -192,15 +205,15 @@ class RegisterAPI(APIView):
                 # Send OTP via SMS using Twilio
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 try:
+                    formatted_phone = format_phone_number(user.phone)
                     client.messages.create(
                         body=f"Your OTP for account verification is: {otp_code}",
                         from_=settings.TWILIO_PHONE_NUMBER,
-                        to=user.phone
-                )
+                        to=formatted_phone
+                    )
                 except TwilioRestException as e:
                     logger.error(f"Twilio error: {str(e)}")
                     return Response({"error": "Failed to send OTP. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
                 return Response({"message": "Owner created successfully. An OTP has been sent to your phone."}, status=status.HTTP_201_CREATED)
 
@@ -208,6 +221,7 @@ class RegisterAPI(APIView):
         except Exception as e:
             logger.error(f"Error during registration: {str(e)}")
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class VerifyOTPView(APIView):
