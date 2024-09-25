@@ -680,16 +680,17 @@ class ManageTherapistScheduleAPI(APIView):
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Handle both single schedule and list of schedules
-        schedule_data = request.data.get('schedule', [])
+        # Get the 'schedule' key from the request data
+        schedule_data = request.data.get('schedule', None)
         if not schedule_data:
             return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if schedule_data is a list or a single schedule
-        if isinstance(schedule_data, dict):
-            schedule_data = [schedule_data]  # Convert single dict to list for uniform processing
-
+        # Process each schedule item in the list
         for schedule_item in schedule_data:
+            # Set therapist automatically from URL
+            schedule_item['therapist'] = therapist.id
+            
+            # Validate and save the schedule
             serializer = TherapistScheduleSerializer(data=schedule_item)
             if serializer.is_valid():
                 serializer.save(therapist=therapist)
@@ -697,6 +698,7 @@ class ManageTherapistScheduleAPI(APIView):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"message": "Schedule(s) created successfully."}, status=status.HTTP_201_CREATED)
+
 
     def put(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
