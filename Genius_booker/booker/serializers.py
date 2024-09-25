@@ -168,26 +168,33 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
     start = serializers.DateTimeField(source='start_time')
     end = serializers.DateTimeField(source='end_time')
     backgroundColor = serializers.CharField(source='color', required=False)
+    therapist = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role='Therapist'), required=False)
+    store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=False)
 
     class Meta:
         model = TherapistSchedule
-        fields = ['id', 'therapist', 'store', 'date', 'start', 'end', 'backgroundColor', 'title']
+        fields = ['id', 'therapist', 'store', 'start', 'end', 'backgroundColor', 'title']  # Removed 'date'
 
     def validate(self, data):
-        therapist = data.get('therapist')
-        store = data.get('store')
+        therapist = data.get('therapist', None)
+        store = data.get('store', None)
         start_time = data.get('start_time')
         end_time = data.get('end_time')
-
-        # Check if the therapist is associated with the store
-        if therapist and store and therapist not in store.therapists.all():
-            raise serializers.ValidationError("Selected therapist is not assigned to this store.")
 
         # Ensure the end_time is after the start_time
         if start_time and end_time and start_time >= end_time:
             raise serializers.ValidationError("End time must be after start time.")
 
+        # Check if the therapist is associated with the store, only if both are provided
+        if therapist and store and therapist not in store.therapists.all():
+            raise serializers.ValidationError("Selected therapist is not assigned to this store.")
+
         return data
+
+    def create(self, validated_data):
+        # Handle setting defaults or dynamic values for missing fields like 'therapist' or 'store'
+        validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
+        return super().create(validated_data)
 
 
 class TherapistSerializer(serializers.ModelSerializer):
