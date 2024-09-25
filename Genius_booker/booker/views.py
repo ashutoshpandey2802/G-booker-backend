@@ -168,16 +168,27 @@ def verify_recaptcha(recaptcha_response):
 
 
 
-def format_phone_number(phone):
+def format_phone_number(phone, country_code="US"):
     try:
-        parsed_number = phonenumbers.parse(phone, "US")  # Use "US" or the appropriate country code
+        # Clean up the phone number (remove spaces, dashes, etc.)
+        phone = ''.join([c for c in phone if c.isdigit() or c == '+'])
+        
+        # If the phone number starts with a '+', parse it as an international number
+        if phone.startswith('+'):
+            parsed_number = phonenumbers.parse(phone, None)  # No need to provide a region
+        else:
+            # Parse the number with the provided country code
+            parsed_number = phonenumbers.parse(phone, country_code)
+
+        # Check if the phone number is valid
         if phonenumbers.is_valid_number(parsed_number):
+            # Return the formatted phone number in E.164 format
             return phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.E164)
         else:
             raise ValueError("Invalid phone number format")
-    except Exception as e:
+    
+    except phonenumbers.phonenumberutil.NumberParseException as e:
         raise ValueError(f"Error formatting phone number: {str(e)}")
-
 
 class RegisterAPI(APIView):
     def post(self, request):
@@ -195,7 +206,8 @@ class RegisterAPI(APIView):
 
             if serializer.is_valid():
                 user = serializer.save(role='Owner')
-                user.is_active = False  # User is not active until verified
+                user.is_active = False  # User is not active until OTP is verified
+                user.is_verified = False  # Adding a verification field
                 user.save()
 
                 # Generate OTP
@@ -205,7 +217,7 @@ class RegisterAPI(APIView):
                 # Send OTP via SMS using Twilio
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 try:
-                    formatted_phone = format_phone_number(user.phone)
+                    formatted_phone = format_phone_number(user.phone, 'IN')
                     client.messages.create(
                         body=f"Your OTP for account verification is: {otp_code}",
                         from_=settings.TWILIO_PHONE_NUMBER,
@@ -226,32 +238,29 @@ class RegisterAPI(APIView):
 
 class VerifyOTPView(APIView):
     def post(self, request):
-        phone = request.data.get('phone')
         otp = request.data.get('otp')
 
         try:
-            otp_record = OTP.objects.get(phone=phone)
+            otp_record = OTP.objects.get(otp=otp)
 
             if otp_record.is_expired():
                 return Response({"error": "OTP has expired"}, status=status.HTTP_400_BAD_REQUEST)
 
-            if otp_record.otp == otp:
-                user = User.objects.get(phone=phone)
-                user.is_verified = True
-                user.is_active = True  # User can now log in
-                user.save()
+            user = User.objects.get(phone=otp_record.phone)  # Fetch user using the phone number from the OTP record
+            user.is_verified = True
+            user.is_active = True  # User can now log in
+            user.save()
 
-                # Delete the OTP record after verification
-                otp_record.delete()
+            # Delete the OTP record after verification
+            otp_record.delete()
 
-                return Response({"message": "Account verified successfully! You can now log in."}, status=status.HTTP_200_OK)
-
-            return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"message": "Account verified successfully! You can now log in."}, status=status.HTTP_200_OK)
 
         except OTP.DoesNotExist:
             return Response({"error": "OTP not found"}, status=status.HTTP_404_NOT_FOUND)
         except User.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
 
 
 
