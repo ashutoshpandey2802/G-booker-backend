@@ -9,6 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from .models import ManagerSchedule, User, Store, TherapistSchedule
+from rest_framework import generics
 from rest_framework.authentication import TokenAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import BasePermission,AllowAny
@@ -726,7 +727,7 @@ class ManageTherapistScheduleAPI(APIView):
 # Appointment Booking API
 
 class BookAppointmentAPI(APIView):
-    permission_classes = []  # Remove any restrictions so anyone can book an appointment
+    permission_classes = []  # Allow anyone to book an appointment
 
     def post(self, request):
         # Extract data from the request
@@ -780,7 +781,7 @@ class BookAppointmentAPI(APIView):
         if existing_bookings.exists():
             return Response({"error": "Therapist is already booked during this time slot"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create the appointment data
+        # Create the appointment data with 'Pending' status
         schedule_data = {
             "therapist": therapist.id,
             "store": store.id,
@@ -789,7 +790,8 @@ class BookAppointmentAPI(APIView):
             "user_email": email,  # Email from request (optional)
             "date": date,
             "start_time": start_time,
-            "end_time": end_time
+            "end_time": end_time,
+            "status": "Pending"  # Set status to 'Pending'
         }
 
         # Save the appointment via serializer
@@ -797,11 +799,10 @@ class BookAppointmentAPI(APIView):
         if serializer.is_valid():
             appointment = serializer.save()
 
-            # Send SMS to the user confirming the booking
+            # Send SMS to the user confirming the booking as 'Pending'
             message_body = (
-                f"Dear {name}, your appointment at {store.name} "
-                f"with {therapist.username} is confirmed for {date} "
-                f"from {start_time} to {end_time}. Thank you!"
+                f"Dear {name}, your appointment at {store.name} with {therapist.username} is pending for {date} "
+                f"from {start_time} to {end_time}. It will be confirmed shortly."
             )
             self.send_sms(phone, message_body)
 
@@ -816,6 +817,9 @@ class BookAppointmentAPI(APIView):
                 "user_name": name
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # send_sms and notify_therapist_and_manager methods remain the same
+
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -856,6 +860,70 @@ class BookAppointmentAPI(APIView):
                 f"Booked by: {user_name}."
             )
             self.send_sms(phone_number_manager, message_body_manager)
+
+class UpdateAppointmentStatusAPI(APIView):
+    permission_classes = [IsAuthenticated]  # Only authenticated users should access
+
+    def post(self, request, appointment_id):
+        # Expect 'Confirmed' or 'Cancelled' status actions
+        status_action = request.data.get('status', None)
+        if status_action not in ['Confirmed', 'Cancelled']:
+            return Response({"error": "Invalid status action"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch the appointment
+        try:
+            appointment = TherapistSchedule.objects.get(id=appointment_id)
+        except TherapistSchedule.DoesNotExist:
+            return Response({"error": "Appointment not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure the user is authorized to modify the appointment
+        if not self.is_authorized_user(request.user, appointment):
+            return Response({"error": "You are not authorized to modify this appointment"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Update the appointment status
+        appointment.status = status_action
+        appointment.save()
+
+        # Notify the user via SMS
+        message_body = (
+            f"Dear {appointment.user_name}, your appointment at {appointment.store.name} "
+            f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.date} "
+            f"from {appointment.start_time} to {appointment.end_time}."
+        )
+        self.send_sms(appointment.user_phone, message_body)
+
+        return Response({"message": f"Appointment {status_action.lower()} successfully"}, status=status.HTTP_200_OK)
+
+    def is_authorized_user(self, user, appointment):
+        """
+        Determines whether the user is authorized to confirm/cancel the appointment.
+        - Owners can manage all appointments for stores they own.
+        - Managers can manage all appointments for stores they manage.
+        - Therapists can manage only their own appointments.
+        """
+        if user.role == 'Owner' and appointment.store.owner == user:
+            return True
+        elif user.role == 'Manager' and user in appointment.store.managers.all():
+            return True
+        elif user.role == 'Therapist' and appointment.therapist == user:
+            return True
+        return False
+
+    def send_sms(self, to, message_body):
+        account_sid = settings.TWILIO_ACCOUNT_SID
+        auth_token = settings.TWILIO_AUTH_TOKEN
+        twilio_phone_number = settings.TWILIO_PHONE_NUMBER
+
+        client = Client(account_sid, auth_token)
+        try:
+            message = client.messages.create(
+                from_=twilio_phone_number,
+                body=message_body,
+                to=to
+            )
+            print(f"SMS sent: {message.sid}")
+        except Exception as e:
+            print(f"Failed to send SMS: {str(e)}")
 
 
 # Get Role Details API
@@ -1103,3 +1171,22 @@ class TherapistScheduleAPI(APIView):
             "therapist_name": therapist.username,
             "schedules": formatted_schedules
         }, status=status.HTTP_200_OK)
+        
+class ListAllBookingsAPI(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = TherapistScheduleSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'Owner':
+            # Owner can view all appointments across all stores they own
+            return TherapistSchedule.objects.filter(store__owner=user)
+        elif user.role == 'Manager':
+            # Manager can view all appointments for stores they manage
+            return TherapistSchedule.objects.filter(store__managers=user)
+        elif user.role == 'Therapist':
+            # Therapist can only view their own appointments
+            return TherapistSchedule.objects.filter(therapist=user)
+        else:
+            return TherapistSchedule.objects.none()  # No appointments for unauthorized roles
+

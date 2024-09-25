@@ -5,7 +5,8 @@ from .views import (
     UpdateTherapistProfileAPI, RoleDetailsAPI, ManagerLoginView, StoreListView, 
     TherapistLoginView, OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,
     AddStaffToStoreView, AllSchedulesAPI, StoreScheduleAPI, ManagerScheduleAPI,
-    TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView,CompleteRegistrationAPI
+    TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView,
+    CompleteRegistrationAPI, UpdateAppointmentStatusAPI, ListAllBookingsAPI
 )
 
 urlpatterns = [
@@ -25,31 +26,31 @@ urlpatterns = [
     path('stores/<int:store_id>/staff/add/', AddStaffAPI.as_view(), name='add_staff'),
     path('stores/add-staff/', AddStaffToStoreView.as_view(), name='add-staff'),
     path('stores/<int:store_id>/delete/', DeleteStoreAPI.as_view(), name='delete-store'),
-    
-    
     path('stores/<int:store_id>/staff/manage/', ManageStaffAPI.as_view(), name='manage_staff'),
-    
     
     # Staff Management APIs (specific actions)
     path('stores/<int:store_id>/staff/<int:staff_id>/update/', ManageStaffAPI.as_view(), name='update_staff'),
     path('stores/<int:store_id>/staff/<int:staff_id>/delete/', ManageStaffAPI.as_view(), name='delete_staff'),
 
+    # Manager and Therapist Profile APIs
     path('manager/update-profile/', UpdateManagerProfileAPI.as_view(), name='update-manager-profile'),
     path('store/<int:store_id>/update/', UpdateStoreDetailsAPI.as_view(), name='update-store'),
+    path('therapist/update-profile/', UpdateTherapistProfileAPI.as_view(), name='update-therapist-profile'),
 
     # Therapist Schedule Management APIs
     path('therapists/<int:therapist_id>/schedule/manage/', ManageTherapistScheduleAPI.as_view(), name='manage_therapist_schedule'),
     path('therapists/schedule/<int:schedule_id>/delete/', ManageTherapistScheduleAPI.as_view(), name='delete_schedule'),
-    path('therapist/update-profile/', UpdateTherapistProfileAPI.as_view(), name='update-therapist-profile'),
 
-    # Appointment Booking API
+    # Appointment Booking and Management APIs
     path('appointments/book/', BookAppointmentAPI.as_view(), name='book_appointment'),
+    path('appointments/<int:appointment_id>/update_status/', UpdateAppointmentStatusAPI.as_view(), name='update_appointment_status'),
+    path('appointments/', ListAllBookingsAPI.as_view(), name='list_all_bookings'),
 
     # Role and Staff Details APIs
     path('role-details/', RoleDetailsAPI.as_view(), name='role-details'),
     path('store/<int:store_id>/staff-details/', StoreStaffDetailsAPI.as_view(), name='store-staff-details'),
 
-    # Get all stores details
+    # Store List API
     path('stores/', StoreListView.as_view(), name='store-list'),
     
     # Schedule APIs
