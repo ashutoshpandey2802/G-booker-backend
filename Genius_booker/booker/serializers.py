@@ -179,8 +179,6 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         fields = ['id', 'therapist', 'store', 'start', 'end', 'backgroundColor', 'title']
 
     def validate(self, data):
-        therapist = data.get('therapist', None)
-        store = data.get('store', None)
         start_time = data.get('start_time')
         end_time = data.get('end_time')
 
@@ -189,6 +187,8 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("End time must be after start time.")
 
         # Validate the therapist and store relationship if both are provided
+        therapist = data.get('therapist', None)
+        store = data.get('store', None)
         if therapist and store:
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
@@ -196,9 +196,11 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        # Default to the request user as therapist if not provided
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
+        validated_data['date'] = validated_data['start_time'].date()  # Extract the date from start_time
+        validated_data['color'] = validated_data.get('backgroundColor', None)  # Handle color if needed
         return super().create(validated_data)
+
 
     def to_internal_value(self, data):
         # Allow both formats for date-time fields
