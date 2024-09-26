@@ -6,7 +6,7 @@ from .views import (
     TherapistLoginView, OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,
     AddStaffToStoreView, AllSchedulesAPI, StoreScheduleAPI, ManagerScheduleAPI,
     TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView,
-    CompleteRegistrationAPI, UpdateAppointmentStatusAPI, ListAllBookingsAPI
+    CompleteRegistrationAPI, UpdateAppointmentStatusAPI, ListAllBookingsAPI,StoreListAPI
 )
 
 urlpatterns = [
@@ -52,6 +52,7 @@ urlpatterns = [
 
     # Store List API
     path('stores/', StoreListView.as_view(), name='store-list'),
+    path('stores/list/', StoreListAPI.as_view(), name='store-list'),
     
     # Schedule APIs
     path('stores/<int:store_id>/schedules/', AllSchedulesAPI.as_view(), name='all-schedules'),

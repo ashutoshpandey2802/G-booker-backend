@@ -1208,3 +1208,19 @@ class ListAllBookingsAPI(generics.ListAPIView):
         else:
             return TherapistSchedule.objects.none()  # No appointments for unauthorized roles
 
+
+class StoreListAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role == 'Owner':
+            stores = Store.objects.filter(owner=request.user)
+        elif request.user.role == 'Manager':
+            stores = Store.objects.filter(managers=request.user)
+        elif request.user.role == 'Therapist':
+            stores = Store.objects.filter(therapists=request.user)
+        else:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+
+        store_data = [{"id": store.id, "name": store.name} for store in stores]
+        return Response(store_data, status=status.HTTP_200_OK)
