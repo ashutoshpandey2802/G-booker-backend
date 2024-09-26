@@ -113,7 +113,7 @@ class Store(models.Model):
             'therapists': therapist_names
         }
 
-# Therapist schedule model
+# Therapist schedule model book appointment
 class TherapistSchedule(models.Model):
     STATUS_CHOICES = (
         ('Pending', 'Pending'),
@@ -126,10 +126,15 @@ class TherapistSchedule(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
     is_day_off = models.BooleanField(default=False)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')  # New status field
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
     title = models.CharField(max_length=255, null=True, blank=True)
-    color = models.CharField(max_length=7, null=True, blank=True)  # Adding color field (e.g., hex code for background color)
-    
+    color = models.CharField(max_length=7, null=True, blank=True)
+
+    # Add customer-related fields
+    customer_name = models.CharField(max_length=255,default="Unknown Customer")
+    customer_phone = models.CharField(max_length=15,default="Unknown Phone")
+    customer_email = models.EmailField(null=True, blank=True)  # Optional email
+
     class Meta:
         unique_together = ['therapist', 'store', 'date', 'start_time', 'end_time']
         indexes = [
@@ -137,7 +142,7 @@ class TherapistSchedule(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.therapist.phone} - {self.date} - {self.start_time} to {self.end_time} - {self.status}'
+        return f'{self.customer_name} - {self.date} - {self.start_time} to {self.end_time} - {self.status}'
 
 # Manager schedule model
 class ManagerSchedule(models.Model):

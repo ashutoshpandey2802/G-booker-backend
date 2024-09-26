@@ -174,49 +174,77 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TherapistSchedule
-        fields = ['id', 'therapist', 'store', 'start', 'end', 'backgroundColor', 'title']
+        fields = [
+            'id', 'therapist', 'store', 'date', 'start', 'end', 'is_day_off',
+            'status', 'title', 'color', 'customer_name', 'customer_phone', 'customer_email'
+        ]
 
     def validate(self, data):
         start_time = data.get('start_time')
         end_time = data.get('end_time')
 
-        # Ensure the end_time is after the start_time
+        # Ensure end_time is after start_time
         if start_time and end_time and start_time >= end_time:
             raise serializers.ValidationError("End time must be after start time.")
 
-        # Validate the therapist and store relationship if both are provided
+        # Ensure customer_name and customer_phone are present when not a day off
+        is_day_off = data.get('is_day_off', False)
+        if not is_day_off:
+            if not data.get('customer_name') or not data.get('customer_phone'):
+                raise serializers.ValidationError("Customer name and phone are required for bookings.")
+
+        # Validate therapist-store relationship if both are provided
         therapist = data.get('therapist', None)
         store = data.get('store', None)
         if therapist and store:
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
-        
+
+        # Validate for overlapping bookings (within the serializer)
+        if therapist and store and start_time and end_time:
+            existing_bookings = TherapistSchedule.objects.filter(
+                therapist=therapist, store=store,
+                date=start_time.date(),
+                start_time__lt=end_time, end_time__gt=start_time
+            )
+            if existing_bookings.exists():
+                raise serializers.ValidationError("Therapist is already booked during this time slot.")
+
         return data
 
     def create(self, validated_data):
+        # Automatically assign therapist if not explicitly provided (for self-scheduling scenarios)
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
-        validated_data['date'] = validated_data['start_time'].date()  # Extract the date from start_time
-        validated_data['color'] = validated_data.get('backgroundColor', None)  # Handle color if needed
+
+        # Extract date from start_time to save in the date field
+        validated_data['date'] = validated_data['start_time'].date()
+
+        # Ensure color handling, default to a value if not provided
+        validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default to green if not provided
+
         return super().create(validated_data)
 
     def to_internal_value(self, data):
-        # Allow both formats for date-time fields
+        """
+        This function allows parsing ISO 8601 datetime format or a more flexible "YYYY-MM-DD HH:MM:SS" format
+        for start and end fields.
+        """
         if 'start' in data:
             try:
-                # Try parsing as ISO 8601 format
-                data['start_time'] = datetime.fromisoformat(data['start'].replace('Z', '+00:00'))  # Handle UTC if present
+                # Handle UTC time if provided, convert it to aware datetime object
+                data['start_time'] = datetime.fromisoformat(data['start'].replace('Z', '+00:00'))
             except ValueError:
                 raise serializers.ValidationError({'start': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
-        
+
         if 'end' in data:
             try:
-                # Try parsing as ISO 8601 format
-                data['end_time'] = datetime.fromisoformat(data['end'].replace('Z', '+00:00'))  # Handle UTC if present
+                data['end_time'] = datetime.fromisoformat(data['end'].replace('Z', '+00:00'))
             except ValueError:
                 raise serializers.ValidationError({'end': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
 
-        # Call the parent class method to handle any additional validation
+        # Call the parent class method to handle additional validation
         return super().to_internal_value(data)
+
 
 
 

@@ -356,12 +356,12 @@ class OwnerLoginView(APIView):
             # Prepare store data including managers and therapists with all details
             store_data = get_store_data(user, stores)
 
-            # Fetch pending and confirmed bookings for the owner's stores
+           # Fetch pending and confirmed bookings for the owner's stores
             pending_bookings = TherapistSchedule.objects.filter(store__owner=user, status="Pending").values(
-                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+                'date', 'start_time', 'end_time', 'customer_name', 'customer_phone'
             )
             confirmed_bookings = TherapistSchedule.objects.filter(store__owner=user, status="Confirmed").values(
-                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+                'date', 'start_time', 'end_time', 'customer_name', 'customer_phone'
             )
 
             # Prepare response data
@@ -401,12 +401,12 @@ class ManagerLoginView(APIView):
             # Fetch manager's own schedule
             manager_schedule = ManagerSchedule.objects.filter(manager=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
-            # Fetch pending and confirmed bookings for the manager's stores
+             # Fetch pending and confirmed bookings for the manager's stores
             pending_bookings = TherapistSchedule.objects.filter(store__managers=user, status="Pending").values(
-                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+                'date', 'start_time', 'end_time', 'customer_name', 'customer_phone'
             )
             confirmed_bookings = TherapistSchedule.objects.filter(store__managers=user, status="Confirmed").values(
-                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+                'date', 'start_time', 'end_time', 'customer_name', 'customer_phone'
             )
 
             # Prepare response data
@@ -455,11 +455,16 @@ class TherapistLoginView(APIView):
             # Fetch pending and confirmed bookings for the therapist
             pending_bookings = TherapistSchedule.objects.filter(
                 therapist=user, status="Pending"
-            ).values('therapist__username', 'start_time', 'end_time', 'user_phone', 'date')
+            ).values(
+                'date', 'start_time', 'end_time', 'customer_name', 'customer_phone'
+            )
 
+            # Fetch confirmed bookings for the therapist
             confirmed_bookings = TherapistSchedule.objects.filter(
                 therapist=user, status="Confirmed"
-            ).values('therapist__username', 'start_time', 'end_time', 'user_phone', 'date')
+            ).values(
+                'date', 'start_time', 'end_time', 'customer_name', 'customer_phone'
+            )
 
             # Prepare response data
             data = {
@@ -781,16 +786,13 @@ class BookAppointmentAPI(APIView):
         # Extract data from the request
         name = request.data.get('name')
         phone = request.data.get('phone')
-        email = request.data.get('email', None)  
+        email = request.data.get('email', None)  # Optional field
         therapist_data = request.data.get('therapist', {})  # Therapist is an object
         therapist_id = therapist_data.get('value')  # Get therapist id from the therapist object
         store_id = request.data.get('store_id')  # Assuming store_id is sent
         date = request.data.get('date')
         start_time = request.data.get('startTime')
         end_time = request.data.get('endTime')
-
-        # Debugging log
-        print(f"Received data: name={name}, phone={phone}, email={email}, therapist_id={therapist_id}, store_id={store_id}, date={date}, start_time={start_time}, end_time={end_time}")
 
         # Ensure mandatory fields are provided
         if not name or not phone or not therapist_id or not date or not start_time or not end_time:
@@ -802,7 +804,7 @@ class BookAppointmentAPI(APIView):
         except User.DoesNotExist:
             return Response({"error": "Therapist not found or incorrect role"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Assuming store_id is provided (you may adjust if it's part of therapist details)
+        # Fetch store
         try:
             store = get_object_or_404(Store, id=store_id)
         except Store.DoesNotExist:
@@ -820,7 +822,7 @@ class BookAppointmentAPI(APIView):
         except ValueError:
             return Response({"error": "Invalid date or time format"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check for conflicts with the therapist's schedule
+        # Check for overlapping bookings (handle partial overlaps)
         existing_bookings = TherapistSchedule.objects.filter(
             therapist=therapist, store=store, date=date,
             start_time__lt=end_time, end_time__gt=start_time
@@ -833,13 +835,16 @@ class BookAppointmentAPI(APIView):
         schedule_data = {
             "therapist": therapist.id,
             "store": store.id,
-            "username ": name,  # User name from request
-            "user_phone": phone,  # Phone from request
-            "user_email": email,  # Email from request (optional)
+            "customer_name": name,
+            "customer_phone": phone,
+            "customer_email": email,
             "date": date,
             "start_time": start_time,
             "end_time": end_time,
-            "status": "Pending"  # Set status to 'Pending'
+            "status": "Pending",  # Default status
+            "is_day_off": False,  # This is not a day off
+            "title": f"Appointment with {therapist.username}",
+            "color": "#00FF00"  # You can change color based on status
         }
 
         # Save the appointment via serializer
@@ -862,12 +867,9 @@ class BookAppointmentAPI(APIView):
                 "appointment_id": appointment.id,
                 "therapist_id": therapist.id,
                 "store_id": store.id,
-                "username ": name
+                "customer_name": name
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    # send_sms and notify_therapist_and_manager methods remain the same
-
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -885,10 +887,7 @@ class BookAppointmentAPI(APIView):
         except Exception as e:
             print(f"Failed to send SMS: {str(e)}")
 
-    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, username ):
-        """
-        Notify the therapist and the store manager about the booked appointment.
-        """
+    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, username):
         phone_number_therapist = therapist.phone
         phone_number_manager = store.manager.phone if hasattr(store, 'manager') else None
 
@@ -896,7 +895,7 @@ class BookAppointmentAPI(APIView):
         message_body_therapist = (
             f"Dear {therapist.username}, you have a new appointment at {store.name} "
             f"on {date} from {start_time} to {end_time}. "
-            f"Booked by: {username }."
+            f"Booked by: {username}."
         )
         self.send_sms(phone_number_therapist, message_body_therapist)
 
@@ -905,14 +904,15 @@ class BookAppointmentAPI(APIView):
             message_body_manager = (
                 f"Dear {store.manager.username}, a new appointment has been booked for {therapist.username} "
                 f"at {store.name} on {date} from {start_time} to {end_time}. "
-                f"Booked by: {username }."
+                f"Booked by: {username}."
             )
             self.send_sms(phone_number_manager, message_body_manager)
+
 
 class UpdateAppointmentStatusAPI(APIView):
     permission_classes = [IsAuthenticated]  # Only authenticated users should access
 
-    def post(self, request, appointment_id):
+    def patch(self, request, appointment_id):
         # Expect 'Confirmed' or 'Cancelled' status actions
         status_action = request.data.get('status', None)
         if status_action not in ['Confirmed', 'Cancelled']:
@@ -929,16 +929,20 @@ class UpdateAppointmentStatusAPI(APIView):
             return Response({"error": "You are not authorized to modify this appointment"}, status=status.HTTP_403_FORBIDDEN)
 
         # Update the appointment status
+        previous_status = appointment.status  # For logging purposes
         appointment.status = status_action
         appointment.save()
 
+        # Log the status change
+        print(f"Appointment {appointment_id} status changed from {previous_status} to {status_action} by {request.user.username}")
+
         # Notify the user via SMS
         message_body = (
-            f"Dear {appointment.username }, your appointment at {appointment.store.name} "
+            f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
             f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.date} "
             f"from {appointment.start_time} to {appointment.end_time}."
         )
-        self.send_sms(appointment.user_phone, message_body)
+        self.send_sms(appointment.customer_phone, message_body)
 
         return Response({"message": f"Appointment {status_action.lower()} successfully"}, status=status.HTTP_200_OK)
 
@@ -1163,6 +1167,16 @@ class ManagerScheduleAPI(APIView):
     
             }, status=status.HTTP_200_OK)
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+from datetime import datetime
+from .models import TherapistSchedule
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
 class TherapistScheduleAPI(APIView):
     # permission_classes = [IsAuthenticated]
 
@@ -1178,62 +1192,45 @@ class TherapistScheduleAPI(APIView):
             schedules = TherapistSchedule.objects.filter(
                 therapist=therapist,
                 date__range=[start_date, end_date]
-            ).values('date', 'start_time', 'end_time', 'is_day_off', 'status')
+            )
         else:
-            schedules = TherapistSchedule.objects.filter(
-                therapist=therapist
-            ).values('date', 'start_time', 'end_time', 'is_day_off', 'status')
+            schedules = TherapistSchedule.objects.filter(therapist=therapist)
 
         # If no schedules are found, return an empty list
         if not schedules.exists():
             return Response({
                 "therapist_id": therapist_id,
                 "therapist_name": therapist.username,
-                "schedules": []
+                "pendingBookings": [],
+                "confirmedBookings": []
             }, status=status.HTTP_200_OK)
 
-        # Format the schedules for calendar display
-        formatted_schedules = []
+        # Split schedules into pending and confirmed bookings
+        pending_bookings = []
+        confirmed_bookings = []
+
         for schedule in schedules:
-            # Define background and border colors based on appointment status
-            if schedule['is_day_off']:
-                # Day off: Display with red color
-                formatted_schedules.append({
-                    "backgroundColor": "#FF0000",  
-                    "borderColor": "#FF0000",      
-                    "editable": False,          
-                    "start": f"{schedule['date']} {schedule['start_time']}",
-                    "end": f"{schedule['date']} {schedule['end_time']}",
-                    "title": f"{therapist.username} - Day Off",
-                })
-            else:
-                # Handle pending and confirmed bookings
-                if schedule['status'] == "Pending":
-                    # Pending appointment: Display with yellow color
-                    formatted_schedules.append({
-                        "backgroundColor": "#F2C037",  # Yellow for pending
-                        "borderColor": "#F2C037",      # Yellow border
-                        "editable": True,
-                        "start": f"{schedule['date']} {schedule['start_time']}",
-                        "end": f"{schedule['date']} {schedule['end_time']}",
-                        "title": f"Pending Appointment with {therapist.username}",
-                    })
-                elif schedule['status'] == "Confirmed":
-                    # Confirmed appointment: Display with green color
-                    formatted_schedules.append({
-                        "backgroundColor": "#21BA45",  # Green for confirmed
-                        "borderColor": "#21BA45",      # Green border
-                        "editable": True,
-                        "start": f"{schedule['date']} {schedule['start_time']}",
-                        "end": f"{schedule['date']} {schedule['end_time']}",
-                        "title": f"Confirmed Appointment with {therapist.username}",
-                    })
+            appointment_data = {
+                "name": schedule.customer_name,
+                "phone": schedule.customer_phone,
+                "email": schedule.customer_email,  # Optional if you want to include
+                "start": f"{schedule.date} {schedule.start_time}",
+                "end": f"{schedule.date} {schedule.end_time}",
+                "date": str(schedule.date)
+            }
+
+            if schedule.status == "Pending":
+                pending_bookings.append(appointment_data)
+            elif schedule.status == "Confirmed":
+                confirmed_bookings.append(appointment_data)
 
         return Response({
             "therapist_id": therapist_id,
             "therapist_name": therapist.username,
-            "schedules": formatted_schedules
+            "pendingBookings": pending_bookings,
+            "confirmedBookings": confirmed_bookings
         }, status=status.HTTP_200_OK)
+
         
 class ListAllBookingsAPI(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
@@ -1250,9 +1247,13 @@ class ListAllBookingsAPI(generics.ListAPIView):
         elif user.role == 'Therapist':
             # Therapist can only view their own appointments
             return TherapistSchedule.objects.filter(therapist=user)
-        else:
-            return TherapistSchedule.objects.none()  # No appointments for unauthorized roles
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
 
+        return queryset
 
 class StoreListAPI(APIView):
     permission_classes = [IsAuthenticated]
