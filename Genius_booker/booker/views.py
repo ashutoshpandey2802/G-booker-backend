@@ -343,36 +343,46 @@ class PasswordResetConfirmView(APIView):
 
 # Login API
 class OwnerLoginView(APIView):
-        def post(self, request):
-            phone = request.data.get('phone')
-            password = request.data.get('password')
-            user = authenticate(phone=phone, password=password)
+    def post(self, request):
+        phone = request.data.get('phone')
+        password = request.data.get('password')
+        user = authenticate(phone=phone, password=password)
 
-            if user and user.role == 'Owner':
-                # Fetch the stores owned by the owner
-                stores = Store.objects.filter(owner=user).prefetch_related('managers', 'therapists')
-                refresh = RefreshToken.for_user(user)
+        if user and user.role == 'Owner':
+            # Fetch the stores owned by the owner
+            stores = Store.objects.filter(owner=user).prefetch_related('managers', 'therapists')
+            refresh = RefreshToken.for_user(user)
 
-                # Prepare store data including managers and therapists with all details
-                store_data =  get_store_data(user, stores)
+            # Prepare store data including managers and therapists with all details
+            store_data = get_store_data(user, stores)
 
-                # Prepare response data
-                data = {
-                    "access": str(refresh.access_token),
-                    "refresh": str(refresh),
-                    "owner": {
-                        "role": user.role,
-                        "owner_id": user.id,
-                        "name": user.username,
-                        "email": user.email,
-                        "phone": user.phone
-                    },
-                    "stores": store_data
-                }
+            # Fetch pending and confirmed bookings for the owner's stores
+            pending_bookings = TherapistSchedule.objects.filter(store__owner=user, status="Pending").values(
+                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+            )
+            confirmed_bookings = TherapistSchedule.objects.filter(store__owner=user, status="Confirmed").values(
+                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+            )
 
-                return Response(data, status=status.HTTP_200_OK)
+            # Prepare response data
+            data = {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "owner": {
+                    "role": user.role,
+                    "owner_id": user.id,
+                    "name": user.username,
+                    "email": user.email,
+                    "phone": user.phone
+                },
+                "stores": store_data,
+                "pending_bookings": list(pending_bookings),
+                "confirmed_bookings": list(confirmed_bookings)
+            }
 
-            return Response({"error": "Login with owner credentials"}, status=status.HTTP_403_FORBIDDEN)
+            return Response(data, status=status.HTTP_200_OK)
+
+        return Response({"error": "Login with owner credentials"}, status=status.HTTP_403_FORBIDDEN)
     
 class ManagerLoginView(APIView):
     def post(self, request):
@@ -391,6 +401,14 @@ class ManagerLoginView(APIView):
             # Fetch manager's own schedule
             manager_schedule = ManagerSchedule.objects.filter(manager=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
+            # Fetch pending and confirmed bookings for the manager's stores
+            pending_bookings = TherapistSchedule.objects.filter(store__managers=user, status="Pending").values(
+                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+            )
+            confirmed_bookings = TherapistSchedule.objects.filter(store__managers=user, status="Confirmed").values(
+                'therapist__username', 'start_time', 'end_time', 'user_phone', 'date'
+            )
+
             # Prepare response data
             data = {
                 "access": str(refresh.access_token),
@@ -404,7 +422,9 @@ class ManagerLoginView(APIView):
                     "exp": str(user.exp),
                     "schedule": list(manager_schedule)
                 },
-                "stores": store_data
+                "stores": store_data,
+                "pending_bookings": list(pending_bookings),
+                "confirmed_bookings": list(confirmed_bookings)
             }
 
             return Response(data, status=status.HTTP_200_OK)
@@ -432,6 +452,15 @@ class TherapistLoginView(APIView):
             # Fetch therapist's own schedule
             therapist_schedule = TherapistSchedule.objects.filter(therapist=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
+            # Fetch pending and confirmed bookings for the therapist
+            pending_bookings = TherapistSchedule.objects.filter(
+                therapist=user, status="Pending"
+            ).values('user_name', 'start_time', 'end_time', 'user_phone', 'date')
+
+            confirmed_bookings = TherapistSchedule.objects.filter(
+                therapist=user, status="Confirmed"
+            ).values('user_name', 'start_time', 'end_time', 'user_phone', 'date')
+
             # Prepare response data
             data = {
                 "access": str(refresh.access_token),
@@ -446,13 +475,14 @@ class TherapistLoginView(APIView):
                     "specialty": user.specialty,
                     "schedule": list(therapist_schedule)
                 },
-                "stores": store_data
+                "stores": store_data,
+                "pendingBookings": list(pending_bookings),
+                "confirmedBookings": list(confirmed_bookings)
             }
 
             return Response(data, status=status.HTTP_200_OK)
 
         return Response({"error": "Login with therapist credentials"}, status=status.HTTP_403_FORBIDDEN)
-
 
 
 
@@ -1148,11 +1178,11 @@ class TherapistScheduleAPI(APIView):
             schedules = TherapistSchedule.objects.filter(
                 therapist=therapist,
                 date__range=[start_date, end_date]
-            ).values('date', 'start_time', 'end_time', 'is_day_off')
+            ).values('date', 'start_time', 'end_time', 'is_day_off', 'status')
         else:
             schedules = TherapistSchedule.objects.filter(
                 therapist=therapist
-            ).values('date', 'start_time', 'end_time', 'is_day_off')
+            ).values('date', 'start_time', 'end_time', 'is_day_off', 'status')
 
         # If no schedules are found, return an empty list
         if not schedules.exists():
@@ -1165,7 +1195,9 @@ class TherapistScheduleAPI(APIView):
         # Format the schedules for calendar display
         formatted_schedules = []
         for schedule in schedules:
+            # Define background and border colors based on appointment status
             if schedule['is_day_off']:
+                # Day off: Display with red color
                 formatted_schedules.append({
                     "backgroundColor": "#FF0000",  
                     "borderColor": "#FF0000",      
@@ -1175,14 +1207,27 @@ class TherapistScheduleAPI(APIView):
                     "title": f"{therapist.username} - Day Off",
                 })
             else:
-                formatted_schedules.append({
-                    "backgroundColor": "#21BA45",  # Green for workdays
-                    "borderColor": "#21BA45",      # Green for workdays
-                    "editable": True,
-                    "start": f"{schedule['date']} {schedule['start_time']}",
-                    "end": f"{schedule['date']} {schedule['end_time']}",
-                    "title": f"Appointment with {therapist.username}",
-                })
+                # Handle pending and confirmed bookings
+                if schedule['status'] == "Pending":
+                    # Pending appointment: Display with yellow color
+                    formatted_schedules.append({
+                        "backgroundColor": "#F2C037",  # Yellow for pending
+                        "borderColor": "#F2C037",      # Yellow border
+                        "editable": True,
+                        "start": f"{schedule['date']} {schedule['start_time']}",
+                        "end": f"{schedule['date']} {schedule['end_time']}",
+                        "title": f"Pending Appointment with {therapist.username}",
+                    })
+                elif schedule['status'] == "Confirmed":
+                    # Confirmed appointment: Display with green color
+                    formatted_schedules.append({
+                        "backgroundColor": "#21BA45",  # Green for confirmed
+                        "borderColor": "#21BA45",      # Green border
+                        "editable": True,
+                        "start": f"{schedule['date']} {schedule['start_time']}",
+                        "end": f"{schedule['date']} {schedule['end_time']}",
+                        "title": f"Confirmed Appointment with {therapist.username}",
+                    })
 
         return Response({
             "therapist_id": therapist_id,
