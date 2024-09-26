@@ -455,11 +455,11 @@ class TherapistLoginView(APIView):
             # Fetch pending and confirmed bookings for the therapist
             pending_bookings = TherapistSchedule.objects.filter(
                 therapist=user, status="Pending"
-            ).values('user_name', 'start_time', 'end_time', 'user_phone', 'date')
+            ).values('therapist__username', 'start_time', 'end_time', 'user_phone', 'date')
 
             confirmed_bookings = TherapistSchedule.objects.filter(
                 therapist=user, status="Confirmed"
-            ).values('user_name', 'start_time', 'end_time', 'user_phone', 'date')
+            ).values('therapist__username', 'start_time', 'end_time', 'user_phone', 'date')
 
             # Prepare response data
             data = {
@@ -833,7 +833,7 @@ class BookAppointmentAPI(APIView):
         schedule_data = {
             "therapist": therapist.id,
             "store": store.id,
-            "user_name": name,  # User name from request
+            "username ": name,  # User name from request
             "user_phone": phone,  # Phone from request
             "user_email": email,  # Email from request (optional)
             "date": date,
@@ -862,7 +862,7 @@ class BookAppointmentAPI(APIView):
                 "appointment_id": appointment.id,
                 "therapist_id": therapist.id,
                 "store_id": store.id,
-                "user_name": name
+                "username ": name
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -885,7 +885,7 @@ class BookAppointmentAPI(APIView):
         except Exception as e:
             print(f"Failed to send SMS: {str(e)}")
 
-    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, user_name):
+    def notify_therapist_and_manager(self, therapist, store, date, start_time, end_time, username ):
         """
         Notify the therapist and the store manager about the booked appointment.
         """
@@ -896,7 +896,7 @@ class BookAppointmentAPI(APIView):
         message_body_therapist = (
             f"Dear {therapist.username}, you have a new appointment at {store.name} "
             f"on {date} from {start_time} to {end_time}. "
-            f"Booked by: {user_name}."
+            f"Booked by: {username }."
         )
         self.send_sms(phone_number_therapist, message_body_therapist)
 
@@ -905,7 +905,7 @@ class BookAppointmentAPI(APIView):
             message_body_manager = (
                 f"Dear {store.manager.username}, a new appointment has been booked for {therapist.username} "
                 f"at {store.name} on {date} from {start_time} to {end_time}. "
-                f"Booked by: {user_name}."
+                f"Booked by: {username }."
             )
             self.send_sms(phone_number_manager, message_body_manager)
 
@@ -934,7 +934,7 @@ class UpdateAppointmentStatusAPI(APIView):
 
         # Notify the user via SMS
         message_body = (
-            f"Dear {appointment.user_name}, your appointment at {appointment.store.name} "
+            f"Dear {appointment.username }, your appointment at {appointment.store.name} "
             f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.date} "
             f"from {appointment.start_time} to {appointment.end_time}."
         )
