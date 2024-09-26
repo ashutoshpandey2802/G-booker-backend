@@ -173,7 +173,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TherapistSchedule
-        fields = ['id', 'therapist', 'store', 'start', 'end', 'backgroundColor', 'title']  # Removed 'date'
+        fields = ['id', 'therapist', 'store', 'start', 'end', 'backgroundColor', 'title']
 
     def validate(self, data):
         therapist = data.get('therapist', None)
@@ -185,16 +185,18 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         if start_time and end_time and start_time >= end_time:
             raise serializers.ValidationError("End time must be after start time.")
 
-        # Check if the therapist is associated with the store, only if both are provided
-        if therapist and store and therapist not in store.therapists.all():
-            raise serializers.ValidationError("Selected therapist is not assigned to this store.")
-
+        # Validate the therapist and store relationship if both are provided
+        if therapist and store:
+            if therapist not in store.therapists.all():
+                raise serializers.ValidationError("Selected therapist is not assigned to this store.")
+        
         return data
 
     def create(self, validated_data):
-        # Handle setting defaults or dynamic values for missing fields like 'therapist' or 'store'
+        # Default to the request user as therapist if not provided
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
         return super().create(validated_data)
+
 
 
 class TherapistSerializer(serializers.ModelSerializer):

@@ -682,17 +682,15 @@ class ManageTherapistScheduleAPI(APIView):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
         # Extract the schedule data directly from the request body
-        schedule_data = request.data  # Not inside request['schedule'] because you're sending the data directly
+        schedule_data = request.data
 
         if not schedule_data:
             return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Add the therapist ID to the schedule data
-        schedule_data['therapist'] = therapist.id
-
-        # Validate and save the schedule
-        serializer = TherapistScheduleSerializer(data=schedule_data)
+        # Validate and save the schedule, passing context to handle request.user
+        serializer = TherapistScheduleSerializer(data=schedule_data, context={'request': request})
         if serializer.is_valid():
+            # Save the schedule, with therapist passed explicitly from the URL parameter
             serializer.save(therapist=therapist)
             return Response({
                 "message": "Schedule created successfully.",
