@@ -682,24 +682,25 @@ class ManageTherapistScheduleAPI(APIView):
             if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
                 return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-            # Extract the schedule data from the request body
-            schedule_data = request.data.get('schedule', None)
+            # Extract the schedule data from the request body (single schedule item expected)
+            schedule_data = request.data
             if not schedule_data:
                 return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Process each schedule item in the list
-            for schedule_item in schedule_data:
-                # Add the therapist ID to the schedule item
-                schedule_item['therapist'] = therapist.id
+            # Add the therapist ID to the schedule data
+            schedule_data['therapist'] = therapist.id
 
-                # Validate and save the schedule
-                serializer = TherapistScheduleSerializer(data=schedule_item)
-                if serializer.is_valid():
-                    serializer.save(therapist=therapist)
-                else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            # Validate and save the schedule
+            serializer = TherapistScheduleSerializer(data=schedule_data)
+            if serializer.is_valid():
+                serializer.save(therapist=therapist)
+                return Response({
+                    "message": "Schedule created successfully.",
+                    "schedule": serializer.data
+                }, status=status.HTTP_201_CREATED)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response({"message": "Schedule(s) created successfully."}, status=status.HTTP_201_CREATED)
         except KeyError as e:
             return Response({"error": f"Missing data in the request: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
