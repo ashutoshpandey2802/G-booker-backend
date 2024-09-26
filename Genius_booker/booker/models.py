@@ -127,7 +127,9 @@ class TherapistSchedule(models.Model):
     end_time = models.TimeField()
     is_day_off = models.BooleanField(default=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')  # New status field
-    title = models.CharField(max_length=255,null=True, blank=True)
+    title = models.CharField(max_length=255, null=True, blank=True)
+    color = models.CharField(max_length=7, null=True, blank=True)  # Adding color field (e.g., hex code for background color)
+    
     class Meta:
         unique_together = ['therapist', 'store', 'date', 'start_time', 'end_time']
         indexes = [

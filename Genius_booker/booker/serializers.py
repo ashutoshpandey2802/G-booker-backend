@@ -164,6 +164,9 @@ class StaffSerializer(serializers.ModelSerializer):
         return user
 
 
+from rest_framework import serializers
+from datetime import datetime
+
 class TherapistScheduleSerializer(serializers.ModelSerializer):
     start = serializers.DateTimeField(source='start_time')
     end = serializers.DateTimeField(source='end_time')
@@ -196,6 +199,28 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         # Default to the request user as therapist if not provided
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
         return super().create(validated_data)
+
+    def to_internal_value(self, data):
+        # Allow both formats for date-time fields
+        if 'start' in data:
+            try:
+                # Try parsing as ISO 8601 format
+                data['start_time'] = datetime.fromisoformat(data['start'].replace('Z', '+00:00'))  # Handle UTC if present
+            except ValueError:
+                # Fall back to regular parsing if the format is invalid
+                raise serializers.ValidationError({'start': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
+        
+        if 'end' in data:
+            try:
+                # Try parsing as ISO 8601 format
+                data['end_time'] = datetime.fromisoformat(data['end'].replace('Z', '+00:00'))  # Handle UTC if present
+            except ValueError:
+                # Fall back to regular parsing if the format is invalid
+                raise serializers.ValidationError({'end': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
+
+        # Call the parent class method to handle any additional validation
+        return super().to_internal_value(data)
+
 
 
 
