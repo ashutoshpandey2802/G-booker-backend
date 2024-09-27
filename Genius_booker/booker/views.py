@@ -797,8 +797,8 @@ class BookAppointmentAPI(APIView):
             "customer_phone": phone,
             "customer_email": email,
             "date": date,
-            "start_time": start_datetime,  # Use the combined datetime
-            "end_time": end_datetime,      # Use the combined datetime
+            "start_time": start_time,
+            "end_time": end_time,      
             "status": "Pending",
             "is_day_off": False,
             "title": f"Appointment with {therapist.username}",

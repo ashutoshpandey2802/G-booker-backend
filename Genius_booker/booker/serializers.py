@@ -166,8 +166,6 @@ class StaffSerializer(serializers.ModelSerializer):
 
 
 class TherapistScheduleSerializer(serializers.ModelSerializer):
-    start = serializers.DateTimeField(source='start_time', required=True)
-    end = serializers.DateTimeField(source='end_time', required=True)
     backgroundColor = serializers.CharField(source='color', required=False)
     therapist = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role='Therapist'), required=True)
     store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=True)
@@ -175,7 +173,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = TherapistSchedule
         fields = [
-            'id', 'therapist', 'store', 'date', 'start', 'end', 'is_day_off',
+            'id', 'therapist', 'store', 'date', 'start_time', 'end_time', 'is_day_off',
             'status', 'title', 'color', 'customer_name', 'backgroundColor', 
             'customer_phone', 'customer_email'
         ]
@@ -205,7 +203,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         if therapist and store and start_time and end_time:
             existing_bookings = TherapistSchedule.objects.filter(
                 therapist=therapist, store=store,
-                date=start_time.date(),
+                date=data['date'],
                 start_time__lt=end_time, end_time__gt=start_time
             )
             if existing_bookings.exists():
