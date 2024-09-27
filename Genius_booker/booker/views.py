@@ -1129,54 +1129,75 @@ class TherapistScheduleAPI(APIView):
     def get(self, request, therapist_id):
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
 
-        # Get start and end date from query params
+        # Get start and end date from query params (optional)
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
 
-        # Filter to only include bookings made by customers and exclude the therapist's own schedule (is_day_off=False)
+        # Fetch therapist's schedule (both own schedule and customer bookings)
         if start_date and end_date:
-            schedules = TherapistSchedule.objects.filter(
+            therapist_schedule = TherapistSchedule.objects.filter(
                 therapist=therapist,
-                date__range=[start_date, end_date],
-                is_day_off=False  # Exclude day-offs which represent therapist's own schedule
+                date__range=[start_date, end_date]
             )
         else:
-            schedules = TherapistSchedule.objects.filter(
-                therapist=therapist,
-                is_day_off=False  # Exclude the therapist's own schedule (like day-offs)
-            )
+            therapist_schedule = TherapistSchedule.objects.filter(therapist=therapist)
 
-        # If no schedules are found, return an empty list
-        if not schedules.exists():
+        # Separate own schedule from customer bookings
+        own_schedule = []
+        customer_bookings = []
+
+        for slot in therapist_schedule:
+            # Consider a schedule without customer info as therapist's own schedule
+            if (slot.customer_name == "Unknown Customer" and slot.customer_phone == "Unknown Phone"):
+                own_schedule.append(slot)
+            else:
+                customer_bookings.append(slot)
+
+        # If no customer bookings or own schedules are found, return an empty response
+        if not customer_bookings and not own_schedule:
             return Response({
                 "therapist_id": therapist_id,
                 "therapist_name": therapist.username,
+                "schedules": [],
                 "pendingBookings": [],
                 "confirmedBookings": []
             }, status=status.HTTP_200_OK)
 
-        # Split schedules into pending and confirmed bookings
+        # Split customer bookings into pending and confirmed
         pending_bookings = []
         confirmed_bookings = []
 
-        for schedule in schedules:
+        for booking in customer_bookings:
             appointment_data = {
-                "name": schedule.customer_name,
-                "phone": schedule.customer_phone,
-                "email": schedule.customer_email,  # Optional if you want to include
-                "start": f"{schedule.date} {schedule.start_time}",
-                "end": f"{schedule.date} {schedule.end_time}",
-                "date": str(schedule.date)
+                "name": booking.customer_name,
+                "phone": booking.customer_phone,
+                "email": booking.customer_email,  # Optional
+                "start": f"{booking.date} {booking.start_time}",
+                "end": f"{booking.date} {booking.end_time}",
+                "date": str(booking.date)
             }
 
-            if schedule.status == "Pending":
+            if booking.status == "Pending":
                 pending_bookings.append(appointment_data)
-            elif schedule.status == "Confirmed":
+            elif booking.status == "Confirmed":
                 confirmed_bookings.append(appointment_data)
+
+        # Prepare own schedule data (non-customer bookings)
+        own_schedule_data = [
+            {
+                "start": f"{slot.date} {slot.start_time}",
+                "end": f"{slot.date} {slot.end_time}",
+                "date": str(slot.date),
+                "title": slot.title,  # e.g., "Working hours" or "Blocked time"
+                "color": slot.color  # Optional color coding for visualization purposes
+            }
+            for slot in own_schedule
+        ]
 
         return Response({
             "therapist_id": therapist_id,
             "therapist_name": therapist.username,
+            "schedules": own_schedule_data,
             "pendingBookings": pending_bookings,
             "confirmedBookings": confirmed_bookings
         }, status=status.HTTP_200_OK)
