@@ -749,12 +749,11 @@ class BookAppointmentAPI(APIView):
         name = request.data.get('name')
         phone = request.data.get('phone')
         email = request.data.get('email', None)
-        therapist_data = request.data.get('therapist', {})
-        therapist_id = therapist_data.get('value')
+        therapist_id = request.data.get('therapist_id')  
         store_id = request.data.get('store_id')
         date = request.data.get('date')
-        start_time = request.data.get('startTime')
-        end_time = request.data.get('endTime')
+        start_time = request.data.get('start_time')
+        end_time = request.data.get('end_time')
 
         # Ensure mandatory fields are provided
         if not name or not phone or not therapist_id or not date or not start_time or not end_time:
@@ -776,10 +775,14 @@ class BookAppointmentAPI(APIView):
         except ValueError:
             return Response({"error": "Invalid date or time format"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Combine date and time for the schedule
+        start_datetime = datetime.combine(date, start_time)
+        end_datetime = datetime.combine(date, end_time)
+
         # Check for overlapping confirmed bookings
         existing_confirmed_bookings = TherapistSchedule.objects.filter(
             therapist=therapist, store=store, date=date,
-            start_time__lt=end_time, end_time__gt=start_time,
+            start_time__lt=end_datetime.time(), end_time__gt=start_datetime.time(),
             status='Confirmed'
         )
 
@@ -794,8 +797,8 @@ class BookAppointmentAPI(APIView):
             "customer_phone": phone,
             "customer_email": email,
             "date": date,
-            "start_time": start_time,
-            "end_time": end_time,
+            "start_time": start_datetime,  # Use the combined datetime
+            "end_time": end_datetime,      # Use the combined datetime
             "status": "Pending",
             "is_day_off": False,
             "title": f"Appointment with {therapist.username}",
@@ -823,6 +826,7 @@ class BookAppointmentAPI(APIView):
                 "store_id": store.id,
                 "customer_name": name
             }, status=status.HTTP_201_CREATED)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

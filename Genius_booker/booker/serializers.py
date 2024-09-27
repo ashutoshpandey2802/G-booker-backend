@@ -166,17 +166,18 @@ class StaffSerializer(serializers.ModelSerializer):
 
 
 class TherapistScheduleSerializer(serializers.ModelSerializer):
-    start = serializers.DateTimeField(source='start_time')
-    end = serializers.DateTimeField(source='end_time')
+    start = serializers.DateTimeField(source='start_time', required=True)
+    end = serializers.DateTimeField(source='end_time', required=True)
     backgroundColor = serializers.CharField(source='color', required=False)
-    therapist = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role='Therapist'), required=False)
-    store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=False)
+    therapist = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role='Therapist'), required=True)
+    store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=True)
 
     class Meta:
         model = TherapistSchedule
         fields = [
             'id', 'therapist', 'store', 'date', 'start', 'end', 'is_day_off',
-            'status', 'title', 'color', 'customer_name', 'customer_phone', 'customer_email'
+            'status', 'title', 'color', 'customer_name', 'backgroundColor', 
+            'customer_phone', 'customer_email'
         ]
 
     def validate(self, data):
@@ -211,6 +212,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Therapist is already booked during this time slot.")
 
         return data
+
 
     def create(self, validated_data):
         # Automatically assign therapist if not explicitly provided (for self-scheduling scenarios)
