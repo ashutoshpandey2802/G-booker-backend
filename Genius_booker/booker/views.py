@@ -19,7 +19,7 @@ from phonenumbers import parse, is_valid_number, format_number, PhoneNumberForma
 from django.conf import settings
 import logging
 from datetime import timedelta
-from .models import OTP  # Adjust the import based on your project structure
+from .models import OTP 
 from django.utils import timezone
 import requests
 from random import randint
@@ -54,11 +54,9 @@ def create_user_and_assign_role(staff_member, store=None):
     exp = staff_member.get('exp', None)
     specialty = staff_member.get('specialty', None)
 
-    # Ensure phone and password are provided
     if not phone or not password:
         raise ValidationError("Phone number and password are required to create a staff member.")
     
-    # Check if user already exists
     user = User.objects.filter(phone=phone).first()
 
     # If user doesn't exist, create a new one
@@ -79,7 +77,6 @@ def create_user_and_assign_role(staff_member, store=None):
             user.specialty = specialty
         user.save()
     
-    # Now, assign the user to the store
     if store:
         if role == 'Manager':
             if store.managers.filter(id=user.id).exists():
@@ -156,7 +153,7 @@ def verify_recaptcha(recaptcha_response):
     try:
         response = requests.post(url, data=data)
         result = response.json()
-        logger.debug(f"CAPTCHA verification result: {result}")  # Log the full response
+        logger.debug(f"CAPTCHA verification result: {result}")  
         if not result.get('success', False):
             logger.error(f"CAPTCHA failed with error codes: {result.get('error-codes')}")
             return False
@@ -272,10 +269,6 @@ class CompleteRegistrationAPI(APIView):
             return Response({"error": "An error occurred"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
-
-
-
 token_generator = PasswordResetTokenGenerator()
 
 class PasswordResetRequestView(APIView):
@@ -351,11 +344,10 @@ class OwnerLoginView(APIView):
                 # Fetch the stores owned by the owner
                 stores = Store.objects.filter(owner=user).prefetch_related('managers', 'therapists')
                 refresh = RefreshToken.for_user(user)
-
-                # Prepare store data including managers and therapists with all details
+                
                 store_data =  get_store_data(user, stores)
 
-                # Prepare response data
+                # response data
                 data = {
                     "access": str(refresh.access_token),
                     "refresh": str(refresh),
@@ -380,14 +372,14 @@ class ManagerLoginView(APIView):
         user = authenticate(phone=phone, password=password)
 
         if user and user.role == 'Manager':
-            # Fetch the stores managed by the manager
+            # stores managed by the manager
             stores = Store.objects.filter(managers=user)
             refresh = RefreshToken.for_user(user)
 
-            # Use helper function to prepare store data
+            
             store_data = get_store_data(user, stores)
 
-            # Fetch manager's own schedule
+            # manager's own schedule
             manager_schedule = ManagerSchedule.objects.filter(manager=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
             # Prepare response data
@@ -422,16 +414,16 @@ class TherapistLoginView(APIView):
         if user and user.role == 'Therapist':
             refresh = RefreshToken.for_user(user)
 
-            # Fetch the stores associated with the therapist
+            #stores associated with the therapist
             stores = Store.objects.filter(therapists=user)
 
-            # Use helper function to prepare store data
+            # store data
             store_data = get_store_data(user, stores)
 
-            # Fetch therapist's own schedule
+            # therapist's own schedule
             therapist_schedule = TherapistSchedule.objects.filter(therapist=user).values('date', 'start_time', 'end_time', 'is_day_off')
 
-            # Prepare response data
+            # response data
             data = {
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
@@ -465,7 +457,7 @@ class CreateStoreWithStaffAPI(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsOwner]
 
-    @transaction.atomic  # Ensures atomic transaction
+    @transaction.atomic 
     def post(self, request):
         # Ensure the authenticated user is an Owner
         if request.user.role != 'Owner':
@@ -518,7 +510,7 @@ class CreateStoreWithStaffAPI(APIView):
             return Response(store_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class DeleteStoreAPI(APIView):
-    authentication_classes = [JWTAuthentication]  # Ensure you're using JWT for authentication
+    authentication_classes = [JWTAuthentication]  
     permission_classes = [IsAuthenticated, IsOwner]  # Only owners can delete the store
 
     def delete(self, request, store_id):
@@ -528,7 +520,7 @@ class DeleteStoreAPI(APIView):
         if store.owner != request.user:
             return Response({"detail": "You do not have permission to delete this store."}, status=status.HTTP_403_FORBIDDEN)
 
-        # Perform the deletion
+        # the deletion
         store.delete()
         return Response({"detail": "Store deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
@@ -1035,8 +1027,8 @@ class StoreStaffDetailsAPI(APIView):
             therapist_data.append({
                 "therapist_id": therapist.id,
                 "therapist_name": therapist.username,
-                "therapist_exp": therapist.exp,  # Add experience field
-                "therapist_specialty": therapist.specialty  # Add specialty field
+                "therapist_exp": therapist.exp,  
+                "therapist_specialty": therapist.specialty  
             })
 
         # Manager details with only experience
@@ -1045,7 +1037,7 @@ class StoreStaffDetailsAPI(APIView):
             manager_data.append({
                 "manager_id": manager.id,
                 "manager_name": manager.username,
-                "manager_exp": manager.exp  # Add experience field
+                "manager_exp": manager.exp  
             })
 
         return Response({
@@ -1173,9 +1165,10 @@ class TherapistScheduleAPI(APIView):
 
         for booking in customer_bookings:
             appointment_data = {
+                "appointment_id": booking.id,
                 "name": booking.customer_name,
                 "phone": booking.customer_phone,
-                "email": booking.customer_email,  # Optional
+                "email": booking.customer_email,  
                 "start": f"{booking.date} {booking.start_time}",
                 "end": f"{booking.date} {booking.end_time}",
                 "date": str(booking.date)
