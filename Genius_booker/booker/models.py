@@ -118,7 +118,7 @@ class TherapistSchedule(models.Model):
     STATUS_CHOICES = (
         ('Pending', 'Pending'),
         ('Confirmed', 'Confirmed'),
-        ('Cancelled', 'Cancelled')
+        ('Cancelled', 'Cancelled'),
     )
     therapist = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'Therapist'})
     store = models.ForeignKey(Store, on_delete=models.CASCADE)
@@ -129,11 +129,22 @@ class TherapistSchedule(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
     title = models.CharField(max_length=255, null=True, blank=True)
     color = models.CharField(max_length=7, null=True, blank=True)
+    
+    # New field for customer confirmation status
+    customer_confirmation_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('Pending', 'Pending'),
+            ('Confirmed', 'Confirmed'),
+            ('Declined', 'Declined')
+        ],
+        default='Pending'
+    )
 
-    # Add customer-related fields
-    customer_name = models.CharField(max_length=255,default="Unknown Customer")
-    customer_phone = models.CharField(max_length=15,default="Unknown Phone")
-    customer_email = models.EmailField(null=True, blank=True)  # Optional email
+    # Customer-related fields
+    customer_name = models.CharField(max_length=255, default="Unknown Customer")
+    customer_phone = models.CharField(max_length=15, default="Unknown Phone")
+    customer_email = models.EmailField(null=True, blank=True)
 
     class Meta:
         unique_together = ['therapist', 'store', 'date', 'start_time', 'end_time']
@@ -143,6 +154,7 @@ class TherapistSchedule(models.Model):
 
     def __str__(self):
         return f'{self.customer_name} - {self.date} - {self.start_time} to {self.end_time} - {self.status}'
+
 
 # Manager schedule model
 class ManagerSchedule(models.Model):

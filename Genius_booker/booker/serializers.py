@@ -169,22 +169,32 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
     backgroundColor = serializers.CharField(source='color', required=False)
     therapist = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role='Therapist'), required=True)
     store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=True)
+    start = serializers.DateTimeField(write_only=True)
+    end = serializers.DateTimeField(write_only=True)
 
     class Meta:
         model = TherapistSchedule
         fields = [
             'id', 'therapist', 'store', 'date', 'start_time', 'end_time', 'is_day_off',
             'status', 'title', 'color', 'customer_name', 'backgroundColor', 
-            'customer_phone', 'customer_email'
+            'customer_phone', 'customer_email', 'customer_confirmation_status',
+            'start', 'end'  # Include start and end in the fields
         ]
 
     def validate(self, data):
-        start_time = data.get('start_time')
-        end_time = data.get('end_time')
+        # Split start and end into date, start_time, and end_time
+        start = data.get('start')
+        end = data.get('end')
 
-        # Ensure end_time is after start_time
-        if start_time and end_time and start_time >= end_time:
-            raise serializers.ValidationError("End time must be after start time.")
+        if start and end:
+            data['date'] = start.date()  # Extract date from 'start'
+            data['start_time'] = start.time()  # Extract time from 'start'
+            data['end_time'] = end.time()  # Extract time from 'end'
+
+            if data['start_time'] >= data['end_time']:
+                raise serializers.ValidationError("End time must be after start time.")
+        else:
+            raise serializers.ValidationError("Both start and end time are required.")
 
         # Ensure customer_name and customer_phone are present when not a day off
         is_day_off = data.get('is_day_off', False)
@@ -199,28 +209,27 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
 
-        # Validate for overlapping bookings (within the serializer)
-        if therapist and store and start_time and end_time:
+        # Validate for overlapping bookings
+        if therapist and store and start and end:
             existing_bookings = TherapistSchedule.objects.filter(
                 therapist=therapist, store=store,
                 date=data['date'],
-                start_time__lt=end_time, end_time__gt=start_time
+                start_time__lt=data['end_time'], end_time__gt=data['start_time']
             )
             if existing_bookings.exists():
                 raise serializers.ValidationError("Therapist is already booked during this time slot.")
 
         return data
 
-
     def create(self, validated_data):
         # Automatically assign therapist if not explicitly provided (for self-scheduling scenarios)
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
-
 
         # Ensure color handling, default to a value if not provided
         validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default to green if not provided
 
         return super().create(validated_data)
+
 
     def to_internal_value(self, data):
         """

@@ -663,24 +663,23 @@ class ManageTherapistScheduleAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, therapist_id):
-        # Get the therapist from the URL parameter
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
 
-        # Owners, Managers, and the therapist themselves can create the schedule
+        # Ensure the user has the right permissions
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Extract the schedule data directly from the request body
         schedule_data = request.data
 
-        if not schedule_data:
-            return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
+        # Extract date, start_time, and end_time from 'start' and 'end'
+        schedule_data['date'] = schedule_data['start'].split()[0]
+        schedule_data['start_time'] = schedule_data['start'].split()[1]
+        schedule_data['end_time'] = schedule_data['end'].split()[1]
 
         # Validate and save the schedule, passing context to handle request.user
         serializer = TherapistScheduleSerializer(data=schedule_data, context={'request': request})
         if serializer.is_valid():
-            # Save the schedule, with therapist passed explicitly from the URL parameter
-            serializer.save(therapist=therapist)
+            serializer.save(therapist=therapist)  # Pass therapist explicitly
             return Response({
                 "message": "Schedule created successfully.",
                 "schedule": serializer.data
@@ -688,16 +687,13 @@ class ManageTherapistScheduleAPI(APIView):
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
     def put(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
         therapist = schedule.therapist
 
-        # Owners, Managers, and the therapist themselves can update the schedule
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Handle both single schedule and list of schedules for updating
         schedule_data = request.data.get('schedule', [])
         if not schedule_data:
             return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
@@ -707,6 +703,11 @@ class ManageTherapistScheduleAPI(APIView):
             schedule_data = [schedule_data]  # Convert single dict to list for uniform processing
 
         for schedule_item in schedule_data:
+            # Extract date, start_time, and end_time from 'start' and 'end'
+            schedule_item['date'] = schedule_item['start'].split()[0]
+            schedule_item['start_time'] = schedule_item['start'].split()[1]
+            schedule_item['end_time'] = schedule_item['end'].split()[1]
+
             serializer = TherapistScheduleSerializer(schedule, data=schedule_item, partial=True)
             if serializer.is_valid():
                 serializer.save()
@@ -743,12 +744,11 @@ class BookAppointmentAPI(APIView):
         email = request.data.get('email', None)
         therapist_id = request.data.get('therapist_id')  
         store_id = request.data.get('store_id')
-        date = request.data.get('date')
-        start_time = request.data.get('start_time')
-        end_time = request.data.get('end_time')
+        start = request.data.get('start')  # datetime
+        end = request.data.get('end')      # datetime
 
         # Ensure mandatory fields are provided
-        if not name or not phone or not therapist_id or not date or not start_time or not end_time:
+        if not name or not phone or not therapist_id or not start or not end:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Fetch therapist and store
@@ -759,22 +759,22 @@ class BookAppointmentAPI(APIView):
         if therapist not in store.therapists.all():
             return Response({"error": "Selected therapist is not assigned to this store"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Parse date and time
+        # Parse start and end datetime
         try:
-            date = datetime.strptime(date, "%Y-%m-%d").date()
-            start_time = datetime.strptime(start_time, "%H:%M").time()
-            end_time = datetime.strptime(end_time, "%H:%M").time()
+            start_datetime = datetime.fromisoformat(start)  # expects 'YYYY-MM-DD HH:MM:SS'
+            end_datetime = datetime.fromisoformat(end)      # expects 'YYYY-MM-DD HH:MM:SS'
         except ValueError:
-            return Response({"error": "Invalid date or time format"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid start or end datetime format"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Combine date and time for the schedule
-        start_datetime = datetime.combine(date, start_time)
-        end_datetime = datetime.combine(date, end_time)
+        # Extract the date, start, and end times
+        date = start_datetime.date()
+        start_time = start_datetime.time()
+        end_time = end_datetime.time()
 
         # Check for overlapping confirmed bookings
         existing_confirmed_bookings = TherapistSchedule.objects.filter(
             therapist=therapist, store=store, date=date,
-            start_time__lt=end_datetime.time(), end_time__gt=start_datetime.time(),
+            start_time__lt=end_time, end_time__gt=start_time,
             status='Confirmed'
         )
 
@@ -797,6 +797,7 @@ class BookAppointmentAPI(APIView):
             "color": "#00FF00"
         }
 
+        # Validate and save the appointment
         serializer = TherapistScheduleSerializer(data=schedule_data, context={'request': request})
         if serializer.is_valid():
             appointment = serializer.save()
@@ -864,9 +865,11 @@ class UpdateAppointmentStatusAPI(APIView):
     permission_classes = [IsAuthenticated]  # Only authenticated users should access
 
     def patch(self, request, appointment_id):
-        # Expect 'Confirmed' or 'Cancelled' status actions
         status_action = request.data.get('status', None)
-        if status_action not in ['Confirmed', 'Cancelled']:
+        new_start_time = request.data.get('new_start_time', None)
+        new_end_time = request.data.get('new_end_time', None)
+
+        if status_action not in ['Confirmed', 'Cancelled', 'Rescheduled']:
             return Response({"error": "Invalid status action"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Fetch the appointment
@@ -879,31 +882,59 @@ class UpdateAppointmentStatusAPI(APIView):
         if not self.is_authorized_user(request.user, appointment):
             return Response({"error": "You are not authorized to modify this appointment"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Update the appointment status
         previous_status = appointment.status  # For logging purposes
-        appointment.status = status_action
-        appointment.save()
+
+        # Handle Reschedule case: update time and notify customer
+        if status_action == 'Rescheduled':
+            if not new_start_time or not new_end_time:
+                return Response({"error": "New start and end time must be provided for rescheduling"}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                new_start_time = datetime.strptime(new_start_time, "%H:%M").time()
+                new_end_time = datetime.strptime(new_end_time, "%H:%M").time()
+            except ValueError:
+                return Response({"error": "Invalid time format. Use HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if the new time slot overlaps with another appointment
+            if TherapistSchedule.objects.filter(
+                therapist=appointment.therapist, 
+                date=appointment.date,
+                start_time__lt=new_end_time,
+                end_time__gt=new_start_time
+            ).exists():
+                return Response({"error": "The new time slot overlaps with another appointment"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Update the appointment with new time and status
+            appointment.start_time = new_start_time
+            appointment.end_time = new_end_time
+            appointment.status = 'Rescheduled'
+            appointment.save()
+
+            # Notify the customer about the rescheduled appointment
+            self.send_reschedule_sms(appointment)
+
+        # Handle Confirm and Cancel cases
+        elif status_action in ['Confirmed', 'Cancelled']:
+            if appointment.status == 'Confirmed' and status_action == 'Confirmed':
+                return Response({"error": "This appointment is already confirmed"}, status=status.HTTP_400_BAD_REQUEST)
+
+            appointment.status = status_action
+            appointment.save()
+
+            # Notify the customer
+            message_body = (
+                f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
+                f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.date} "
+                f"from {appointment.start_time} to {appointment.end_time}."
+            )
+            self.send_sms(appointment.customer_phone, message_body)
 
         # Log the status change
         print(f"Appointment {appointment_id} status changed from {previous_status} to {status_action} by {request.user.username}")
 
-        # Notify the user via SMS
-        message_body = (
-            f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
-            f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.date} "
-            f"from {appointment.start_time} to {appointment.end_time}."
-        )
-        self.send_sms(appointment.customer_phone, message_body)
-
         return Response({"message": f"Appointment {status_action.lower()} successfully"}, status=status.HTTP_200_OK)
 
     def is_authorized_user(self, user, appointment):
-        """
-        Determines whether the user is authorized to confirm/cancel the appointment.
-        - Owners can manage all appointments for stores they own.
-        - Managers can manage all appointments for stores they manage.
-        - Therapists can manage only their own appointments.
-        """
         if user.role == 'Owner' and appointment.store.owner == user:
             return True
         elif user.role == 'Manager' and user in appointment.store.managers.all():
@@ -911,6 +942,70 @@ class UpdateAppointmentStatusAPI(APIView):
         elif user.role == 'Therapist' and appointment.therapist == user:
             return True
         return False
+
+    def send_sms(self, to, message_body):
+        account_sid = settings.TWILIO_ACCOUNT_SID
+        auth_token = settings.TWILIO_AUTH_TOKEN
+        twilio_phone_number = settings.TWILIO_PHONE_NUMBER
+
+        client = Client(account_sid, auth_token)
+        try:
+            message = client.messages.create(
+                from_=twilio_phone_number,
+                body=message_body,
+                to=to
+            )
+            print(f"SMS sent: {message.sid}")
+        except Exception as e:
+            print(f"Failed to send SMS: {str(e)}")
+
+    def send_reschedule_sms(self, appointment):
+        confirmation_link = f"{settings.FRONTEND_URL}/confirm-reschedule/{appointment.id}"
+        message_body = (
+            f"Dear {appointment.customer_name}, your appointment with {appointment.therapist.username} "
+            f"at {appointment.store.name} has been rescheduled to {appointment.start_time} - {appointment.end_time} on {appointment.date}. "
+            f"Please confirm the new time by visiting: {confirmation_link}."
+        )
+        self.send_sms(appointment.customer_phone, message_body)
+
+class ConfirmRescheduledAppointmentAPI(APIView):
+    permission_classes = []  # No authentication required for customer confirmation
+
+    def post(self, request, appointment_id):
+        # Fetch the appointment
+        try:
+            appointment = TherapistSchedule.objects.get(id=appointment_id, status='Rescheduled')
+        except TherapistSchedule.DoesNotExist:
+            return Response({"error": "Appointment not found or not rescheduled"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Prevent confirmation of expired appointments
+        if appointment.date < timezone.now().date() or (appointment.date == timezone.now().date() and appointment.end_time < timezone.now().time()):
+            return Response({"error": "The appointment time has already passed"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get customer's confirmation response
+        confirmation_status = request.data.get('confirmation_status', None)
+        if confirmation_status not in ['Confirmed', 'Declined']:
+            return Response({"error": "Invalid confirmation status"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update the appointment's customer confirmation status
+        appointment.customer_confirmation_status = confirmation_status
+        if confirmation_status == 'Confirmed':
+            appointment.status = 'Confirmed'
+        else:
+            appointment.status = 'Pending'
+        appointment.save()
+
+        # Notify therapist and store manager about the confirmation or decline
+        self.notify_therapist_and_manager(appointment)
+
+        return Response({"message": f"Appointment {confirmation_status.lower()} successfully"}, status=status.HTTP_200_OK)
+
+    def notify_therapist_and_manager(self, appointment):
+        message_body = f"The customer has {appointment.customer_confirmation_status.lower()} the appointment on {appointment.date}."
+        self.send_sms(appointment.therapist.phone, message_body)
+
+        if appointment.store.manager:
+            self.send_sms(appointment.store.manager.phone, message_body)
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -1165,6 +1260,7 @@ class TherapistScheduleAPI(APIView):
 
         for booking in customer_bookings:
             appointment_data = {
+                "title": "booked",
                 "appointment_id": booking.id,
                 "name": booking.customer_name,
                 "phone": booking.customer_phone,
