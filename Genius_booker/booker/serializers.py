@@ -216,8 +216,6 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         # Automatically assign therapist if not explicitly provided (for self-scheduling scenarios)
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
 
-        # Extract date from start_time to save in the date field
-        validated_data['date'] = validated_data['start_time'].date()
 
         # Ensure color handling, default to a value if not provided
         validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default to green if not provided

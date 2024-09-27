@@ -805,7 +805,7 @@ class BookAppointmentAPI(APIView):
             "color": "#00FF00"
         }
 
-        serializer = TherapistScheduleSerializer(data=schedule_data)
+        serializer = TherapistScheduleSerializer(data=schedule_data, context={'request': request})
         if serializer.is_valid():
             appointment = serializer.save()
 
