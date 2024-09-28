@@ -670,11 +670,17 @@ class ManageTherapistScheduleAPI(APIView):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
         schedule_data = request.data
-
-        # Extract date, start_time, and end_time from 'start' and 'end'
-        schedule_data['date'] = schedule_data['start'].split()[0]
-        schedule_data['start_time'] = schedule_data['start'].split()[1]
-        schedule_data['end_time'] = schedule_data['end'].split()[1]
+        
+         # Safely parse 'start' and 'end' datetimes to extract date, start_time, and end_time
+        try:
+            start_datetime = datetime.fromisoformat(schedule_data['start'])
+            end_datetime = datetime.fromisoformat(schedule_data['end'])
+            schedule_data['date'] = start_datetime.date()
+            schedule_data['start_time'] = start_datetime.time()
+            schedule_data['end_time'] = end_datetime.time()
+        except (ValueError, KeyError):
+            return Response({"error": "Invalid 'start' or 'end' datetime format. Expected format: 'YYYY-MM-DDTHH:MM:SS'"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         # Validate and save the schedule, passing context to handle request.user
         serializer = TherapistScheduleSerializer(data=schedule_data, context={'request': request})
@@ -694,27 +700,30 @@ class ManageTherapistScheduleAPI(APIView):
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        schedule_data = request.data.get('schedule', [])
+        # Instead of getting schedule data from 'schedule', take it directly from request.data
+        schedule_data = request.data
         if not schedule_data:
             return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if schedule_data is a list or a single schedule
-        if isinstance(schedule_data, dict):
-            schedule_data = [schedule_data]  # Convert single dict to list for uniform processing
+    # Safely parse 'start' and 'end' datetimes to extract date, start_time, and end_time
+        try:
+            start_datetime = datetime.fromisoformat(schedule_data['start'])
+            end_datetime = datetime.fromisoformat(schedule_data['end'])
+            schedule_data['date'] = start_datetime.date()
+            schedule_data['start_time'] = start_datetime.time()
+            schedule_data['end_time'] = end_datetime.time()
+        except (ValueError, KeyError):
+            return Response({"error": "Invalid 'start' or 'end' datetime format. Expected format: 'YYYY-MM-DDTHH:MM:SS'"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        for schedule_item in schedule_data:
-            # Extract date, start_time, and end_time from 'start' and 'end'
-            schedule_item['date'] = schedule_item['start'].split()[0]
-            schedule_item['start_time'] = schedule_item['start'].split()[1]
-            schedule_item['end_time'] = schedule_item['end'].split()[1]
+    # Use the same serializer to validate and update the existing schedule
+        serializer = TherapistScheduleSerializer(schedule, data=schedule_data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Schedule updated successfully.", "schedule": serializer.data}, status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            serializer = TherapistScheduleSerializer(schedule, data=schedule_item, partial=True)
-            if serializer.is_valid():
-                serializer.save()
-            else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({"message": "Schedule(s) updated successfully."}, status=status.HTTP_200_OK)
 
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)

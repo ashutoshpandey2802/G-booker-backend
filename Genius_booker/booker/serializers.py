@@ -176,40 +176,36 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         model = TherapistSchedule
         fields = [
             'id', 'therapist', 'store', 'date', 'start_time', 'end_time', 'is_day_off',
-            'status', 'title', 'color', 'customer_name', 'backgroundColor', 
+            'status', 'title', 'color', 'customer_name', 'backgroundColor',
             'customer_phone', 'customer_email', 'customer_confirmation_status',
-            'start', 'end'  # Include start and end in the fields
+            'start', 'end'
         ]
 
     def validate(self, data):
-        # Split start and end into date, start_time, and end_time
         start = data.get('start')
         end = data.get('end')
 
         if start and end:
-            data['date'] = start.date()  # Extract date from 'start'
-            data['start_time'] = start.time()  # Extract time from 'start'
-            data['end_time'] = end.time()  # Extract time from 'end'
+            data['date'] = start.date()
+            data['start_time'] = start.time()
+            data['end_time'] = end.time()
 
             if data['start_time'] >= data['end_time']:
                 raise serializers.ValidationError("End time must be after start time.")
         else:
             raise serializers.ValidationError("Both start and end time are required.")
 
-        # Ensure customer_name and customer_phone are present when not a day off
         is_day_off = data.get('is_day_off', False)
         if not is_day_off:
             if not data.get('customer_name') or not data.get('customer_phone'):
                 raise serializers.ValidationError("Customer name and phone are required for bookings.")
 
-        # Validate therapist-store relationship if both are provided
         therapist = data.get('therapist', None)
         store = data.get('store', None)
         if therapist and store:
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
 
-        # Validate for overlapping bookings
         if therapist and store and start and end:
             existing_bookings = TherapistSchedule.objects.filter(
                 therapist=therapist, store=store,
@@ -222,23 +218,14 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        # Automatically assign therapist if not explicitly provided (for self-scheduling scenarios)
         validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
-
-        # Ensure color handling, default to a value if not provided
-        validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default to green if not provided
+        validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default color
 
         return super().create(validated_data)
 
-
     def to_internal_value(self, data):
-        """
-        This function allows parsing ISO 8601 datetime format or a more flexible "YYYY-MM-DD HH:MM:SS" format
-        for start and end fields.
-        """
         if 'start' in data:
             try:
-                # Handle UTC time if provided, convert it to aware datetime object
                 data['start_time'] = datetime.fromisoformat(data['start'].replace('Z', '+00:00'))
             except ValueError:
                 raise serializers.ValidationError({'start': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
@@ -249,9 +236,7 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
             except ValueError:
                 raise serializers.ValidationError({'end': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
 
-        # Call the parent class method to handle additional validation
         return super().to_internal_value(data)
-
 
 
 
