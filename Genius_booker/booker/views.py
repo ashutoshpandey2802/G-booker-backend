@@ -884,8 +884,8 @@ class UpdateAppointmentStatusAPI(APIView):
 
     def patch(self, request, appointment_id):
         status_action = request.data.get('status', None)
-        new_start_time = request.data.get('new_start_time', None)
-        new_end_time = request.data.get('new_end_time', None)
+        new_start_datetime = request.data.get('new_start', None)
+        new_end_datetime = request.data.get('new_end', None)
 
         if status_action not in ['Confirmed', 'Cancelled', 'Rescheduled']:
             return Response({"error": "Invalid status action"}, status=status.HTTP_400_BAD_REQUEST)
@@ -902,29 +902,28 @@ class UpdateAppointmentStatusAPI(APIView):
 
         previous_status = appointment.status  # For logging purposes
 
-        # Handle Reschedule case: update time and notify customer
+        # Handle Reschedule case: update datetime and notify customer
         if status_action == 'Rescheduled':
-            if not new_start_time or not new_end_time:
-                return Response({"error": "New start and end time must be provided for rescheduling"}, status=status.HTTP_400_BAD_REQUEST)
+            if not new_start_datetime or not new_end_datetime:
+                return Response({"error": "New start and end datetime must be provided for rescheduling"}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                new_start_time = datetime.strptime(new_start_time, "%H:%M").time()
-                new_end_time = datetime.strptime(new_end_time, "%H:%M").time()
+                new_start_datetime = datetime.strptime(new_start_datetime, "%Y-%m-%d %H:%M")
+                new_end_datetime = datetime.strptime(new_end_datetime, "%Y-%m-%d %H:%M")
             except ValueError:
-                return Response({"error": "Invalid time format. Use HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid datetime format. Use YYYY-MM-DD HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
 
             # Check if the new time slot overlaps with another appointment
             if TherapistSchedule.objects.filter(
                 therapist=appointment.therapist, 
-                date=appointment.date,
-                start_time__lt=new_end_time,
-                end_time__gt=new_start_time
+                start_time__lt=new_end_datetime,
+                end_time__gt=new_start_datetime
             ).exists():
                 return Response({"error": "The new time slot overlaps with another appointment"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Update the appointment with new time and status
-            appointment.start_time = new_start_time
-            appointment.end_time = new_end_time
+            appointment.start_time = new_start_datetime
+            appointment.end_time = new_end_datetime
             appointment.status = 'Rescheduled'
             appointment.save()
 
@@ -942,8 +941,8 @@ class UpdateAppointmentStatusAPI(APIView):
             # Notify the customer
             message_body = (
                 f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
-                f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.date} "
-                f"from {appointment.start_time} to {appointment.end_time}."
+                f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.start_time.strftime('%Y-%m-%d %H:%M')} "
+                f"to {appointment.end_time.strftime('%Y-%m-%d %H:%M')}."
             )
             self.send_sms(appointment.customer_phone, message_body)
 
@@ -981,10 +980,12 @@ class UpdateAppointmentStatusAPI(APIView):
         confirmation_link = f"{settings.FRONTEND_URL}/confirm-reschedule/{appointment.id}"
         message_body = (
             f"Dear {appointment.customer_name}, your appointment with {appointment.therapist.username} "
-            f"at {appointment.store.name} has been rescheduled to {appointment.start_time} - {appointment.end_time} on {appointment.date}. "
-            f"Please confirm the new time by visiting: {confirmation_link}."
+            f"at {appointment.store.name} has been rescheduled to {appointment.start_time.strftime('%Y-%m-%d %H:%M')} "
+            f"- {appointment.end_time.strftime('%Y-%m-%d %H:%M')}. "
+            f"Please confirm the new time by clicking here: {confirmation_link}."
         )
         self.send_sms(appointment.customer_phone, message_body)
+
 
 class ConfirmRescheduledAppointmentAPI(APIView):
     permission_classes = []  # No authentication required for customer confirmation
@@ -1005,12 +1006,13 @@ class ConfirmRescheduledAppointmentAPI(APIView):
         if confirmation_status not in ['Confirmed', 'Declined']:
             return Response({"error": "Invalid confirmation status"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Update the appointment's customer confirmation status
-        appointment.customer_confirmation_status = confirmation_status
+        # Update the appointment's status based on the customer's confirmation
         if confirmation_status == 'Confirmed':
             appointment.status = 'Confirmed'
-        else:
-            appointment.status = 'Pending'
+        else:  # confirmation_status == 'Declined'
+            appointment.status = 'Cancelled'
+
+        appointment.customer_confirmation_status = confirmation_status
         appointment.save()
 
         # Notify therapist and store manager about the confirmation or decline
