@@ -164,36 +164,95 @@ class StaffSerializer(serializers.ModelSerializer):
         user.save()
         return user
 
-
-class TherapistScheduleSerializer(serializers.ModelSerializer):
-    backgroundColor = serializers.CharField(source='color', required=False)
+class ManageTherapistScheduleSerializer(serializers.ModelSerializer):
     therapist = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(role='Therapist'), required=True)
     store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=True)
-    start = serializers.DateTimeField(write_only=True)
-    end = serializers.DateTimeField(write_only=True)
+    backgroundColor = serializers.CharField(source='color', required=False)
+    start_time = serializers.TimeField(required=True)  # Accept as hh:mm[:ss[.uuuuuu]] format
+    end_time = serializers.TimeField(required=True)    # Accept as hh:mm[:ss[.uuuuuu]] format
+
+    class Meta:
+        model = TherapistSchedule
+        fields = ['therapist', 'store', 'title', 'backgroundColor', 'date', 'start_time', 'end_time']
+
+    def validate(self, data):
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        
+        # Ensure start and end are present
+        if not start_time or not end_time:
+            raise serializers.ValidationError("Both start and end time are required.")
+
+        # Combine with date to create datetime for validation
+        date = data.get('date')
+        if not date:
+            raise serializers.ValidationError("Date is required.")
+
+        # Ensure start time is before end time
+        if start_time >= end_time:
+            raise serializers.ValidationError("End time must be after start time.")
+
+        therapist = data.get('therapist', None)
+        store = data.get('store', None)
+
+        # Check if therapist is assigned to the store
+        if therapist and store:
+            if therapist not in store.therapists.all():
+                raise serializers.ValidationError("Selected therapist is not assigned to this store.")
+
+        # Check for existing bookings
+        existing_bookings = TherapistSchedule.objects.filter(
+            therapist=therapist,
+            store=store,
+            date=date,
+            start_time__lt=end_time,
+            end_time__gt=start_time
+        )
+        if existing_bookings.exists():
+            raise serializers.ValidationError("Therapist is already booked during this time slot.")
+
+        return data
+
+    def create(self, validated_data):
+        # Create the TherapistSchedule instance with validated data
+        validated_data['color'] = validated_data.pop('backgroundColor', None)  # Handle color field
+        
+        # Ensure required fields are set
+        return TherapistSchedule.objects.create(**validated_data)
+        
+        
+class TherapistScheduleSerializer(serializers.ModelSerializer):
+    backgroundColor = serializers.CharField(source='color', required=False)
+    therapist = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role='Therapist'), 
+        required=True
+    )
+    store = serializers.PrimaryKeyRelatedField(
+        queryset=Store.objects.all(), 
+        required=True
+    )
+    
+    start_time = serializers.TimeField(required=True)
+    end_time = serializers.TimeField(required=True)
 
     class Meta:
         model = TherapistSchedule
         fields = [
-            'id', 'therapist', 'store', 'date', 'start_time', 'end_time', 'is_day_off',
-            'status', 'title', 'color', 'customer_name', 'backgroundColor',
-            'customer_phone', 'customer_email', 'customer_confirmation_status',
-            'start', 'end'
+            'id', 'therapist', 'store', 'date', 'start_time', 'end_time', 
+            'is_day_off', 'status', 'title', 'color', 'customer_name', 
+            'backgroundColor', 'customer_phone', 'customer_email', 
+            'customer_confirmation_status',
         ]
 
     def validate(self, data):
-        start = data.get('start')
-        end = data.get('end')
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
 
-        if start and end:
-            data['date'] = start.date()
-            data['start_time'] = start.time()
-            data['end_time'] = end.time()
-
-            if data['start_time'] >= data['end_time']:
+        if start_time and end_time:
+            if start_time >= end_time:
                 raise serializers.ValidationError("End time must be after start time.")
         else:
-            raise serializers.ValidationError("Both start and end time are required.")
+            raise serializers.ValidationError("Both start time and end time are required.")
 
         is_day_off = data.get('is_day_off', False)
         if not is_day_off:
@@ -206,11 +265,11 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
             if therapist not in store.therapists.all():
                 raise serializers.ValidationError("Selected therapist is not assigned to this store.")
 
-        if therapist and store and start and end:
+        if therapist and store and start_time and end_time:
             existing_bookings = TherapistSchedule.objects.filter(
                 therapist=therapist, store=store,
                 date=data['date'],
-                start_time__lt=data['end_time'], end_time__gt=data['start_time']
+                start_time__lt=end_time, end_time__gt=start_time
             )
             if existing_bookings.exists():
                 raise serializers.ValidationError("Therapist is already booked during this time slot.")
@@ -218,29 +277,9 @@ class TherapistScheduleSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        validated_data['therapist'] = validated_data.get('therapist', self.context['request'].user)
         validated_data['color'] = validated_data.get('backgroundColor', '#00FF00')  # Default color
-
-        return super().create(validated_data)
-
-    def to_internal_value(self, data):
-        if 'start' in data:
-            try:
-                data['start_time'] = datetime.fromisoformat(data['start'].replace('Z', '+00:00'))
-            except ValueError:
-                raise serializers.ValidationError({'start': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
-
-        if 'end' in data:
-            try:
-                data['end_time'] = datetime.fromisoformat(data['end'].replace('Z', '+00:00'))
-            except ValueError:
-                raise serializers.ValidationError({'end': 'Invalid date format. Use ISO 8601 or "YYYY-MM-DD HH:MM:SS".'})
-
-        return super().to_internal_value(data)
-
-
-
-
+        return super().create(validated_data)    
+    
 class TherapistSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

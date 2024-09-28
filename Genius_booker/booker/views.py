@@ -37,7 +37,7 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from .serializers import (
     RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
-    TherapistScheduleSerializer,AddStaffToStoreSerializer,StoreDetailSerializer
+    TherapistScheduleSerializer,AddStaffToStoreSerializer,StoreDetailSerializer,ManagerSchedule,ManageTherapistScheduleSerializer
 )
 
 
@@ -665,27 +665,24 @@ class ManageTherapistScheduleAPI(APIView):
     def post(self, request, therapist_id):
         therapist = get_object_or_404(User, id=therapist_id, role='Therapist')
 
-        # Ensure the user has the right permissions
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
         schedule_data = request.data
-        
-         # Safely parse 'start' and 'end' datetimes to extract date, start_time, and end_time
+
         try:
             start_datetime = datetime.fromisoformat(schedule_data['start'])
             end_datetime = datetime.fromisoformat(schedule_data['end'])
             schedule_data['date'] = start_datetime.date()
-            schedule_data['start_time'] = start_datetime.time()
-            schedule_data['end_time'] = end_datetime.time()
+            schedule_data['start_time'] = start_datetime.time()  # Use time for start_time
+            schedule_data['end_time'] = end_datetime.time()      # Use time for end_time
         except (ValueError, KeyError):
             return Response({"error": "Invalid 'start' or 'end' datetime format. Expected format: 'YYYY-MM-DDTHH:MM:SS'"},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate and save the schedule, passing context to handle request.user
-        serializer = TherapistScheduleSerializer(data=schedule_data, context={'request': request})
+        serializer = ManageTherapistScheduleSerializer(data=schedule_data, context={'request': request})
         if serializer.is_valid():
-            serializer.save(therapist=therapist)  # Pass therapist explicitly
+            serializer.save(therapist=therapist)
             return Response({
                 "message": "Schedule created successfully.",
                 "schedule": serializer.data
@@ -700,12 +697,10 @@ class ManageTherapistScheduleAPI(APIView):
         if not (request.user.role == 'Owner' or request.user.role == 'Manager' or request.user == therapist):
             return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Instead of getting schedule data from 'schedule', take it directly from request.data
         schedule_data = request.data
         if not schedule_data:
             return Response({"error": "No schedule data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Safely parse 'start' and 'end' datetimes to extract date, start_time, and end_time
         try:
             start_datetime = datetime.fromisoformat(schedule_data['start'])
             end_datetime = datetime.fromisoformat(schedule_data['end'])
@@ -716,15 +711,13 @@ class ManageTherapistScheduleAPI(APIView):
             return Response({"error": "Invalid 'start' or 'end' datetime format. Expected format: 'YYYY-MM-DDTHH:MM:SS'"},
                             status=status.HTTP_400_BAD_REQUEST)
 
-    # Use the same serializer to validate and update the existing schedule
-        serializer = TherapistScheduleSerializer(schedule, data=schedule_data, partial=True)
+        serializer = ManageTherapistScheduleSerializer(schedule, data=schedule_data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "Schedule updated successfully.", "schedule": serializer.data}, status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
+        
     def delete(self, request, schedule_id):
         schedule = get_object_or_404(TherapistSchedule, id=schedule_id)
         therapist = schedule.therapist
@@ -743,6 +736,8 @@ class ManageTherapistScheduleAPI(APIView):
 
 # Appointment Booking API
 
+
+
 class BookAppointmentAPI(APIView):
     permission_classes = []  # Allow anyone to book an appointment
 
@@ -753,11 +748,14 @@ class BookAppointmentAPI(APIView):
         email = request.data.get('email', None)
         therapist_id = request.data.get('therapist_id')  
         store_id = request.data.get('store_id')
-        start = request.data.get('start')  # datetime
-        end = request.data.get('end')      # datetime
+        start_time = request.data.get('start_time')  # Extract 'start_time'
+        end_time = request.data.get('end_time')      # Extract 'end_time'
 
+        print(f"received data : {request.data}")
+        print(f"start_time : {start_time}, end_time : {end_time}")
+        
         # Ensure mandatory fields are provided
-        if not name or not phone or not therapist_id or not start or not end:
+        if not name or not phone or not therapist_id or not start_time or not end_time:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Fetch therapist and store
@@ -770,20 +768,24 @@ class BookAppointmentAPI(APIView):
 
         # Parse start and end datetime
         try:
-            start_datetime = datetime.fromisoformat(start)  # expects 'YYYY-MM-DD HH:MM:SS'
-            end_datetime = datetime.fromisoformat(end)      # expects 'YYYY-MM-DD HH:MM:SS'
+            start_datetime = timezone.datetime.fromisoformat(start_time)  # expects 'YYYY-MM-DDTHH:MM:SS'
+            end_datetime = timezone.datetime.fromisoformat(end_time)      # expects 'YYYY-MM-DDTHH:MM:SS'
         except ValueError:
-            return Response({"error": "Invalid start or end datetime format"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid start or end datetime format. Ensure you are using the correct format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate start and end times
+        if start_datetime >= end_datetime:
+            return Response({"error": "Start time must be earlier than end time."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Extract the date, start, and end times
         date = start_datetime.date()
-        start_time = start_datetime.time()
-        end_time = end_datetime.time()
+        start_time_parsed = start_datetime.time()
+        end_time_parsed = end_datetime.time()
 
         # Check for overlapping confirmed bookings
         existing_confirmed_bookings = TherapistSchedule.objects.filter(
             therapist=therapist, store=store, date=date,
-            start_time__lt=end_time, end_time__gt=start_time,
+            start_time__lt=end_time_parsed, end_time__gt=start_time_parsed,
             status='Confirmed'
         )
 
@@ -798,8 +800,8 @@ class BookAppointmentAPI(APIView):
             "customer_phone": phone,
             "customer_email": email,
             "date": date,
-            "start_time": start_time,
-            "end_time": end_time,      
+            "start_time": start_time_parsed,  # Pass as TimeField
+            "end_time": end_time_parsed,      # Pass as TimeField
             "status": "Pending",
             "is_day_off": False,
             "title": f"Appointment with {therapist.username}",
@@ -814,12 +816,12 @@ class BookAppointmentAPI(APIView):
             # Send SMS to the user confirming the booking as 'Pending'
             message_body = (
                 f"Dear {name}, your appointment at {store.name} with {therapist.username} is pending for {date} "
-                f"from {start_time} to {end_time}. It will be confirmed shortly."
+                f"from {start_time_parsed} to {end_time_parsed}. It will be confirmed shortly."
             )
             self.send_sms(phone, message_body)
 
             # Notify the therapist and manager
-            self.notify_therapist_and_manager(therapist, store, date, start_time, end_time, name)
+            self.notify_therapist_and_manager(therapist, store, date, start_time_parsed, end_time_parsed, name)
 
             return Response({
                 "message": "Appointment booked successfully",
@@ -828,9 +830,16 @@ class BookAppointmentAPI(APIView):
                 "store_id": store.id,
                 "customer_name": name
             }, status=status.HTTP_201_CREATED)
-        
+            
+        print(serializer.errors)  # Debugging output
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+    def send_sms_confirmation(self, name, phone, store, therapist, date, start_time, end_time):
+        # Logic to send SMS to the user confirming the booking as 'Pending'
+        message_body = (
+            f"Dear {name}, your appointment at {store.name} with {therapist.username} is pending for {date} "
+            f"from {start_time} to {end_time}. It will be confirmed shortly."
+        )
+        self.send_sms(phone, message_body)
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -859,7 +868,7 @@ class BookAppointmentAPI(APIView):
             f"Booked by: {username}."
         )
         self.send_sms(phone_number_therapist, message_body_therapist)
-
+        
         # Message to the manager if available
         if phone_number_manager:
             message_body_manager = (
