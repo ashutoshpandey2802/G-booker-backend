@@ -956,13 +956,24 @@ class UpdateAppointmentStatusAPI(APIView):
     
             appointment.status = status_action
             appointment.save()
+
+            # If the appointment is canceled, include a promo code in the message
+            if status_action == 'Cancelled':
+                promo_code = self.generate_promo_code()  # Generate a promo code
+                message_body = (
+                    f"Dear {appointment.customer_name}, we are sorry for the inconvenience. "
+                    f"Your appointment at {appointment.store.name} with {appointment.therapist.username} has been canceled. "
+                    f"As a gesture of goodwill, please use the promo code '{promo_code}' for a discount on your next booking. "
+                    f"The appointment was originally scheduled from {appointment.start_time.strftime('%Y-%m-%d %H:%M')} "
+                    f"to {appointment.end_time.strftime('%Y-%m-%d %H:%M')}."
+                )
+            else:
+                message_body = (
+                    f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
+                    f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.start_time.strftime('%Y-%m-%d %H:%M')} "
+                    f"to {appointment.end_time.strftime('%Y-%m-%d %H:%M')}."
+                )
     
-            # Notify the customer
-            message_body = (
-                f"Dear {appointment.customer_name}, your appointment at {appointment.store.name} "
-                f"with {appointment.therapist.username} has been {status_action.lower()} for {appointment.start_time.strftime('%Y-%m-%d %H:%M')} "
-                f"to {appointment.end_time.strftime('%Y-%m-%d %H:%M')}."
-            )
             self.send_sms(appointment.customer_phone, message_body)
     
         # Log the status change
@@ -978,6 +989,13 @@ class UpdateAppointmentStatusAPI(APIView):
         elif user.role == 'Therapist' and appointment.therapist == user:
             return True
         return False
+
+    def generate_promo_code(self):
+        # For now, you can use a predefined promo code or generate one
+        # Here's a simple example of generating a random alphanumeric promo code
+        import random
+        import string
+        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -1022,7 +1040,6 @@ class UpdateAppointmentStatusAPI(APIView):
         )
     
         self.send_sms(appointment.customer_phone, message_body)
-
 
 
 
