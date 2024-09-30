@@ -913,14 +913,16 @@ class UpdateAppointmentStatusAPI(APIView):
             except ValueError:
                 return Response({"error": "Invalid datetime format. Use YYYY-MM-DD HH:MM."}, status=status.HTTP_400_BAD_REQUEST)
     
-            # Check if the new time slot overlaps with another appointment
+            # Check if the new time slot overlaps with another confirmed appointment on the same date
             if TherapistSchedule.objects.filter(
-                therapist=appointment.therapist, 
-                start_time__lt=new_end_datetime,
-                end_time__gt=new_start_datetime
+                therapist=appointment.therapist,
+                date=appointment.date,  
+                start_time__lt=new_end_datetime.time(),  
+                end_time__gt=new_start_datetime.time(),  
+                status='Confirmed'  
             ).exists():
-                return Response({"error": "The new time slot overlaps with another appointment"}, status=status.HTTP_400_BAD_REQUEST)
-    
+                return Response({"error": "The new time slot overlaps with another appointment on this date"}, status=status.HTTP_400_BAD_REQUEST)
+
             # Store the previous appointment times for notification
             previous_start = appointment.start_time
             previous_end = appointment.end_time
@@ -940,7 +942,10 @@ class UpdateAppointmentStatusAPI(APIView):
                 "previous_start": previous_start.strftime('%Y-%m-%d %H:%M'),
                 "previous_end": previous_end.strftime('%Y-%m-%d %H:%M'),
                 "new_start": new_start_datetime.strftime('%Y-%m-%d %H:%M'),
-                "new_end": new_end_datetime.strftime('%Y-%m-%d %H:%M')
+                "new_end": new_end_datetime.strftime('%Y-%m-%d %H:%M'),
+                "store_name": appointment.store.name,
+                "therapist_name": appointment.therapist.username,
+                "customer_name": appointment.customer_name
             }
             return Response(response_data, status=status.HTTP_200_OK)
     
