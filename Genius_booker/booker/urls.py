@@ -6,7 +6,7 @@ from .views import (
     TherapistLoginView, OwnerLoginView, BookAppointmentAPI, StoreStaffDetailsAPI,
     AddStaffToStoreView, AllSchedulesAPI, StoreScheduleAPI, ManagerScheduleAPI,
     TherapistScheduleAPI, DeleteStoreAPI, PasswordResetRequestView, PasswordResetConfirmView,
-    CompleteRegistrationAPI, UpdateAppointmentStatusAPI, ListAllBookingsAPI,StoreListAPI,ConfirmRescheduledAppointmentAPI
+    CompleteRegistrationAPI,AppointmentsByStoreAPI, UpdateAppointmentStatusAPI, ListAllBookingsAPI,StoreListAPI,ConfirmRescheduledAppointmentAPI
 )
 
 urlpatterns = [
@@ -46,6 +46,8 @@ urlpatterns = [
     path('appointments/<int:appointment_id>/update_status/', UpdateAppointmentStatusAPI.as_view(), name='update_appointment_status'),
     path('appointments/<int:appointment_id>/confirm/', ConfirmRescheduledAppointmentAPI.as_view(), name='confirm_rescheduled_appointment'),
     path('appointments/', ListAllBookingsAPI.as_view(), name='list_all_bookings'),
+    path('appointments/store/<int:store_id>/', AppointmentsByStoreAPI.as_view(), name='appointments-by-store'),
+
 
     # Role and Staff Details APIs
     path('role-details/', RoleDetailsAPI.as_view(), name='role-details'),

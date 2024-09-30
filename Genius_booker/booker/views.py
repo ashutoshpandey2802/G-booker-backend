@@ -37,7 +37,7 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 from .serializers import (
     RegisterSerializer, StaffSerializer, TherapistSerializer, UserSerializer, StoreSerializer,
-    TherapistScheduleSerializer,AddStaffToStoreSerializer,StoreDetailSerializer,ManagerSchedule,ManageTherapistScheduleSerializer
+    TherapistScheduleSerializer,AppointmentSerializer,AddStaffToStoreSerializer,StoreDetailSerializer,ManagerSchedule,ManageTherapistScheduleSerializer
 )
 
 
@@ -1073,16 +1073,16 @@ class ConfirmRescheduledAppointmentAPI(APIView):
         appointment.save()
 
         # Notify therapist and store manager about the confirmation or decline
-        self.notify_therapist_and_manager(appointment)
+        # self.notify_therapist_and_manager(appointment)
 
         return Response({"message": f"Appointment {confirmation_status.lower()} successfully"}, status=status.HTTP_200_OK)
 
-    def notify_therapist_and_manager(self, appointment):
-        message_body = f"The customer has {appointment.customer_confirmation_status.lower()} the appointment on {appointment.date}."
-        self.send_sms(appointment.therapist.phone, message_body)
+    # def notify_therapist_and_manager(self, appointment):
+    #     message_body = f"The customer has {appointment.customer_confirmation_status.lower()} the appointment on {appointment.date}."
+    #     self.send_sms(appointment.therapist.phone, message_body)
 
-        if appointment.store.manager:
-            self.send_sms(appointment.store.manager.phone, message_body)
+    #     if appointment.store.manager:
+    #         self.send_sms(appointment.store.manager.phone, message_body)
 
     def send_sms(self, to, message_body):
         account_sid = settings.TWILIO_ACCOUNT_SID
@@ -1100,6 +1100,80 @@ class ConfirmRescheduledAppointmentAPI(APIView):
         except Exception as e:
             print(f"Failed to send SMS: {str(e)}")
 
+class AppointmentDetailsAPI(APIView):
+    
+    def get(self, request, appointment_id):
+        # Fetch the appointment by ID
+        try:
+            appointment = TherapistSchedule.objects.get(id=appointment_id)
+        except TherapistSchedule.DoesNotExist:
+            return Response({"error": "Appointment not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Prepare appointment data
+        data = {
+            "id": appointment.id,
+            "therapist": appointment.therapist.username,
+            "customer_name": appointment.customer_name,
+            "customer_phone": appointment.customer_phone,
+            "customer_email": appointment.customer_email,
+            "store": appointment.store.name,
+            "status": appointment.status,
+            "current_start_time": appointment.start_time.strftime('%Y-%m-%d %H:%M'),
+            "current_end_time": appointment.end_time.strftime('%Y-%m-%d %H:%M'),
+        }
+
+        # If the appointment was rescheduled, include previous times
+        if appointment.status == 'Rescheduled':
+            previous_start = appointment.previous_start_time
+            previous_end = appointment.previous_end_time
+
+            # Format previous times if they exist
+            if previous_start and previous_end:
+                data['previous_start_time'] = previous_start.strftime('%Y-%m-%d %H:%M')
+                data['previous_end_time'] = previous_end.strftime('%Y-%m-%d %H:%M')
+
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class AppointmentsByStoreAPI(APIView):
+    permission_classes = []  
+
+    def get(self, request, store_id):
+        # Fetch confirmed and rescheduled appointments for the store
+        appointments = TherapistSchedule.objects.filter(store_id=store_id, status__in=['Confirmed', 'Rescheduled'])
+
+        if not appointments.exists():
+            return Response({"error": "No appointments found for this store"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Prepare a response with additional fields for rescheduled appointments
+        appointment_data = []
+        for appointment in appointments:
+            data = {
+                "id": appointment.id,
+                "therapist": appointment.therapist.username,
+                "customer_name": appointment.customer_name,
+                "customer_phone": appointment.customer_phone,
+                "customer_email": appointment.customer_email,
+                "store": appointment.store.name,
+                "status": appointment.status,
+                "start_time": appointment.start_time.strftime('%Y-%m-%d %H:%M'),
+                "end_time": appointment.end_time.strftime('%Y-%m-%d %H:%M'),
+            }
+
+            # If the appointment was rescheduled, include previous times
+            if appointment.status == 'Rescheduled':
+                previous_start = appointment.previous_start_time
+                previous_end = appointment.previous_end_time
+
+                # Format previous times if they exist
+                if previous_start and previous_end:
+                    data['previous_start_time'] = previous_start.strftime('%Y-%m-%d %H:%M')
+                    data['previous_end_time'] = previous_end.strftime('%Y-%m-%d %H:%M')
+
+            appointment_data.append(data)
+
+        return Response(appointment_data, status=status.HTTP_200_OK)
+    
 
 # Get Role Details API
 class RoleDetailsAPI(APIView):

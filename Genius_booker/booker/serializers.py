@@ -381,3 +381,11 @@ class StoreDetailSerializer(serializers.ModelSerializer):
         model = Store
         fields = ['id', 'name', 'address', 'phone', 'email', 'opening_days', 'start_time', 'end_time', 'lunch_start_time', 'lunch_end_time', 'therapists']
     
+    
+class AppointmentSerializer(serializers.ModelSerializer):
+    previous_start_time = serializers.DateTimeField(format='%Y-%m-%d %H:%M', required=False)
+    previous_end_time = serializers.DateTimeField(format='%Y-%m-%d %H:%M', required=False)
+
+    class Meta:
+        model = TherapistSchedule
+        fields = ['id', 'therapist', 'customer_name', 'customer_phone', 'customer_email', 'store', 'status', 'start_time', 'end_time', 'previous_start_time', 'previous_end_time']

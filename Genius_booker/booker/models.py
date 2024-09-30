@@ -125,6 +125,8 @@ class TherapistSchedule(models.Model):
     date = models.DateField()
     start_time = models.TimeField()
     end_time = models.TimeField()
+    previous_start_time = models.DateTimeField(null=True, blank=True)  # Track previous start time
+    previous_end_time = models.DateTimeField(null=True, blank=True)    # Track previous end time
     is_day_off = models.BooleanField(default=False)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
     title = models.CharField(max_length=255, null=True, blank=True)
