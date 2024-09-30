@@ -997,18 +997,22 @@ class UpdateAppointmentStatusAPI(APIView):
 
     def send_reschedule_sms(self, appointment, previous_start, previous_end):
         confirmation_link = f"{settings.FRONTEND_URL}/#/confirm-reschedule/?{appointment.id}"
-        
+    
+        # Combine the date with the previous start and end times
+        previous_start_datetime = timezone.datetime.combine(appointment.date, previous_start)
+        previous_end_datetime = timezone.datetime.combine(appointment.date, previous_end)
+    
         # Format the previous and new start/end times for clear presentation
         previous_time_str = (
-            f"from {previous_start.strftime('%Y-%m-%d')} {previous_start.strftime('%H:%M')} "
-            f"to {previous_end.strftime('%Y-%m-%d')} {previous_end.strftime('%H:%M')}"
+            f"from {previous_start_datetime.strftime('%Y-%m-%d')} {previous_start_datetime.strftime('%H:%M')} "
+            f"to {previous_end_datetime.strftime('%Y-%m-%d')} {previous_end_datetime.strftime('%H:%M')}"
         )
-        
+    
         new_time_str = (
             f"from {appointment.start_time.strftime('%Y-%m-%d')} {appointment.start_time.strftime('%H:%M')} "
             f"to {appointment.end_time.strftime('%Y-%m-%d')} {appointment.end_time.strftime('%H:%M')}"
         )
-        
+    
         # Compose the SMS message
         message_body = (
             f"Dear {appointment.customer_name}, your appointment with {appointment.therapist.username} "
@@ -1016,8 +1020,9 @@ class UpdateAppointmentStatusAPI(APIView):
             f"and the new appointment time is {new_time_str}. "
             f"Please confirm the new time by clicking here: {confirmation_link}."
         )
-        
+    
         self.send_sms(appointment.customer_phone, message_body)
+
 
 
 
